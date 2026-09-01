@@ -11,6 +11,8 @@ defmodule SymphonyElixir.Config.Schema do
   @linear_endpoint "https://api.linear.app/graphql"
   @linear_active_states ["Todo", "In Progress"]
   @linear_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
+  @sqlite_active_states ["QUEUED"]
+  @sqlite_terminal_states ["READY_FOR_HUMAN_MERGE"]
 
   @type t :: %__MODULE__{}
 
@@ -52,6 +54,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:endpoint, :string)
       field(:api_key, :string)
       field(:project_slug, :string)
+      field(:database_path, :string)
       field(:assignee, :string)
       field(:provider, :map, default: %{})
       field(:secret_environment_names, {:array, :string}, default: [])
@@ -70,6 +73,7 @@ defmodule SymphonyElixir.Config.Schema do
           :endpoint,
           :api_key,
           :project_slug,
+          :database_path,
           :assignee,
           :provider,
           :required_labels,
@@ -425,17 +429,7 @@ defmodule SymphonyElixir.Config.Schema do
           {settings.tracker.api_key, settings.tracker.assignee, provider, []}
       end
 
-    {active_states, terminal_states} =
-      case settings.tracker.kind do
-        kind when kind in ["linear", "memory"] ->
-          {
-            settings.tracker.active_states || @linear_active_states,
-            settings.tracker.terminal_states || @linear_terminal_states
-          }
-
-        _ ->
-          {settings.tracker.active_states, settings.tracker.terminal_states}
-      end
+    {active_states, terminal_states} = resolved_tracker_states(settings.tracker)
 
     tracker = %{
       settings.tracker
@@ -461,6 +455,25 @@ defmodule SymphonyElixir.Config.Schema do
     }
 
     %{settings | tracker: tracker, workspace: workspace, codex: codex}
+  end
+
+  defp resolved_tracker_states(tracker) do
+    case tracker.kind do
+      kind when kind in ["linear", "memory"] ->
+        {
+          tracker.active_states || @linear_active_states,
+          tracker.terminal_states || @linear_terminal_states
+        }
+
+      "sqlite" ->
+        {
+          tracker.active_states || @sqlite_active_states,
+          tracker.terminal_states || @sqlite_terminal_states
+        }
+
+      _ ->
+        {tracker.active_states, tracker.terminal_states}
+    end
   end
 
   defp normalize_keys(value) when is_map(value) do

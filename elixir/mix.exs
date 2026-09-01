@@ -80,6 +80,9 @@ defmodule SymphonyElixir.MixProject do
       {:yaml_elixir, "~> 2.12"},
       {:solid, "~> 1.2"},
       {:ecto, "~> 3.13"},
+      # Direct read-only SQLite access for the Step 3 tracker adapter. The
+      # adapter does not need Ecto's persistence layer or pilot's migrations.
+      {:exqlite, "~> 0.39.0"},
       {:burrito, "~> 1.5", only: :prod, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
