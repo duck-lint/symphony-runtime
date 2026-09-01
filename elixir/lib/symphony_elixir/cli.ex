@@ -6,7 +6,13 @@ defmodule SymphonyElixir.CLI do
   alias SymphonyElixir.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer]
+  @switches [
+    {@acknowledgement_switch, :boolean},
+    logs_root: :string,
+    port: :integer,
+    version: :boolean
+  ]
+  @version Mix.Project.config()[:version]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
@@ -29,15 +35,23 @@ defmodule SymphonyElixir.CLI do
       :ok ->
         wait_for_shutdown()
 
+      {:version, version} ->
+        IO.puts(version)
+        System.halt(0)
+
       {:error, message} ->
         IO.puts(:stderr, message)
         System.halt(1)
     end
   end
 
-  @spec evaluate([String.t()], deps()) :: :ok | {:error, String.t()}
+  @spec evaluate([String.t()], deps()) ::
+          :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
+      {opts, [], []} when opts[:version] ->
+        {:version, @version}
+
       {opts, [], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),

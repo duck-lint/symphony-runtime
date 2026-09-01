@@ -5,6 +5,10 @@ defmodule SymphonyElixir.CLITest do
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
+  test "reports the packaged runtime version without starting the service" do
+    assert {:version, "0.0.2"} = CLI.evaluate(["--version"])
+  end
+
   test "returns the guardrails acknowledgement banner when the flag is missing" do
     parent = self()
 
