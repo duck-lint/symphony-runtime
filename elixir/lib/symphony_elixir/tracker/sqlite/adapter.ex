@@ -104,6 +104,14 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
     fetch_issues_by_ids(ids, tracker_settings)
   end
 
+  @doc false
+  @spec with_validated_connection_for_test(map(), (reference() -> term()), (reference() -> term())) ::
+          term()
+  def with_validated_connection_for_test(tracker_settings, function, on_open)
+      when is_map(tracker_settings) and is_function(function, 1) and is_function(on_open, 1) do
+    with_validated_connection(tracker_settings, function, on_open)
+  end
+
   @spec agent_tool_specs() :: [map()]
   def agent_tool_specs, do: []
 
@@ -221,12 +229,22 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
   defp normalize_state(value) when is_binary(value), do: String.upcase(String.trim(value))
   defp normalize_state(_value), do: nil
 
-  defp with_validated_connection(tracker_settings, function) do
+  defp with_validated_connection(tracker_settings, function),
+    do: with_validated_connection(tracker_settings, function, fn _connection -> :ok end)
+
+  defp with_validated_connection(tracker_settings, function, on_open) do
     with :ok <- validate_settings_shape(tracker_settings),
-         {:ok, connection} <- open_readonly(tracker_settings.database_path),
-         :ok <- validate_schema(connection) do
+         {:ok, connection} <- open_readonly(tracker_settings.database_path) do
+      # The close bracket begins immediately after open succeeds. This keeps
+      # failed contract validation and callback exceptions from leaking NIF
+      # connections during polling or workflow reload.
       try do
-        function.(connection)
+        on_open.(connection)
+
+        case validate_schema(connection) do
+          :ok -> function.(connection)
+          error -> error
+        end
       after
         _ = Sqlite3.close(connection)
       end

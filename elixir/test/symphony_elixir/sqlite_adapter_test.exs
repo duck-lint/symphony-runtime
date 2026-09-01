@@ -148,6 +148,45 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
     end
   end
 
+  test "closes the opened connection when schema validation fails" do
+    owner = self()
+
+    for {name, mutation, expected} <- [
+          {"newer", "PRAGMA user_version = 2", {:sqlite_unsupported_schema_version, 2}},
+          {"identity", "UPDATE schema_migrations SET identity = 'wrong'", {:sqlite_invalid_migration_identity, [[1, "wrong"]]}},
+          {"partial", "DROP TABLE blockers", {:sqlite_incompatible_schema, {:missing_columns, "blockers", ["task_id", "kind", "status"]}}}
+        ] do
+      path = copy_fixture("close-#{name}")
+      execute_mutation(path, mutation)
+
+      result =
+        Adapter.with_validated_connection_for_test(
+          settings(database_path: path),
+          fn _connection -> :ok end,
+          fn connection -> send(owner, {:opened, name, connection}) end
+        )
+
+      assert {:error, ^expected} = result
+      assert_receive {:opened, ^name, connection}
+      assert {:error, _reason} = Sqlite3.prepare(connection, "SELECT 1")
+    end
+  end
+
+  test "closes the opened connection when the tracker callback raises" do
+    owner = self()
+
+    assert_raise RuntimeError, "callback failure", fn ->
+      Adapter.with_validated_connection_for_test(
+        settings(),
+        fn _connection -> raise "callback failure" end,
+        fn connection -> send(owner, {:opened, connection}) end
+      )
+    end
+
+    assert_receive {:opened, connection}
+    assert {:error, _reason} = Sqlite3.prepare(connection, "SELECT 1")
+  end
+
   defp settings(overrides \\ []) do
     %{
       kind: "sqlite",
