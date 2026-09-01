@@ -49,15 +49,8 @@ defmodule SymphonyElixir.CLI do
           :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
-      {opts, [], []} when opts[:version] ->
-        {:version, @version}
-
       {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps) do
-          run(Path.expand("WORKFLOW.md"), deps)
-        end
+        evaluate_options(opts, deps)
 
       {opts, [workflow_path], []} ->
         with :ok <- require_guardrails_acknowledgement(opts),
@@ -68,6 +61,22 @@ defmodule SymphonyElixir.CLI do
 
       _ ->
         {:error, usage_message()}
+    end
+  end
+
+  @spec evaluate_options(keyword(), deps()) ::
+          :ok | {:version, String.t()} | {:error, String.t()}
+  defp evaluate_options(opts, deps) do
+    case Keyword.get(opts, :version, false) do
+      true ->
+        {:version, @version}
+
+      false ->
+        with :ok <- require_guardrails_acknowledgement(opts),
+             :ok <- maybe_set_logs_root(opts, deps),
+             :ok <- maybe_set_server_port(opts, deps) do
+          run(Path.expand("WORKFLOW.md"), deps)
+        end
     end
   end
 

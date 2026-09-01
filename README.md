@@ -21,12 +21,15 @@ mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- mix test
 mise exec -- mix format --check-formatted
 mise exec -- mix lint
+mise exec -- mix test --cover
+mise exec -- mix dialyzer --format short
 ```
 
-The repository's aggregate CI-equivalent command is:
+This explicit sequence is the canonical WSL build/test procedure and mirrors
+the repository's `Makefile` CI target. Where `make` is available, the same
+checks can be run through the aggregate command:
 
 ```sh
 mise exec -- make all

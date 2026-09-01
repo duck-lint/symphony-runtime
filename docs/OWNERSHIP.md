@@ -15,23 +15,39 @@ historical Apache licensing and attribution retained in `LICENSE` and
 
 ## Historical provenance finding
 
-The exact OpenAI Symphony source commit for the imported tree is **not
-mechanically identifiable from this repository**.
+The imported implementation is mechanically attributable to OpenAI Symphony
+commit `8001b52e3062495a16e520e4ceaf8f9de868c4d0`.
 
-The strongest local evidence is:
+The systematic comparison used the parentless local import commit
+`b8cac304f86ba18a02a20ac5b2d94da0f2672799` and the upstream commit's Git tree.
+It found:
 
-- `b8cac304f86ba18a02a20ac5b2d94da0f2672799` is the repository's initial,
-  parentless commit and adds the complete runtime tree in one local import;
-- that commit contains no upstream SHA, source remote, import manifest, or
-  subtree history;
-- the only configured Git remote is the project-owned
-  `https://github.com/duck-lint/symphony-runtime.git`; and
-- the repository retains `LICENSE` and `NOTICE`, but those files do not name
-  an exact source commit.
+- 117 of 119 local-import files are byte-identical to the upstream blobs,
+  including the complete `elixir/lib/` source tree, `mix.exs`, `mix.lock`, and
+  tests;
+- `.codex/skills/land/land_watch.py` is identical in bytes and differs only in
+  file mode (`100644` locally versus `100755` upstream);
+- `NOTICE` is the only same-path content mismatch. It is a local
+  project/legal packaging file, not a runtime source mismatch;
+- no local-import path is extra relative to that upstream tree; and
+- 11 upstream paths were intentionally/selectively omitted by the local
+  import: `.codex/worktree_init.sh`, the three `.github/media` assets,
+  `docs/symphony-smoke-board-review.md`, `docs/symphony-smoke-test-one.md`,
+  `elixir/AGENTS.md`, `elixir/README.md`, `elixir/WORKFLOW.md`, `README.md`,
+  and `SPEC.md`.
 
-Accordingly, `b8cac304f86ba18a02a20ac5b2d94da0f2672799` is recorded here as the
-local import boundary, **not** misrepresented as the upstream commit. No
-stronger commit attribution is licensed by the repository evidence.
+The result is therefore a selective import based on
+`8001b52e3062495a16e520e4ceaf8f9de868c4d0`, not a mixed or incompatible
+source revision. The local import boundary remains recorded because it is
+useful evidence of how this repository was created; it is not substituted for
+the historical upstream source baseline.
+
+The omitted `elixir/WORKFLOW.md` was added in this correction round as the
+smallest local workflow fixture that satisfies the checked-in runtime tests.
+It is not claimed to be byte-identical upstream content; its original absence
+remains part of the selective-import comparison. Its tracker-shaped contents
+are a test/build fixture at this stage; later local-tracker cutover work remains
+deferred.
 
 ## Pilot identity integration
 
@@ -46,7 +62,7 @@ contract.
 The Step 1 runtime probe is therefore deliberately narrow:
 
 ```sh
-SYMPHONY_BIN=/absolute/path/to/symphony-runtime/elixir/bin/symphony \
+export SYMPHONY_BIN=/absolute/path/to/symphony-runtime/elixir/bin/symphony
 python3 /path/to/symphony-pilot/scripts/pin_runtime.py \
   --project <registered-slug> --symphony "$SYMPHONY_BIN"
 ```

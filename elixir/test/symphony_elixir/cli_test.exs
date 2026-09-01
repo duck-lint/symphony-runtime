@@ -6,7 +6,17 @@ defmodule SymphonyElixir.CLITest do
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
 
   test "reports the packaged runtime version without starting the service" do
-    assert {:version, "0.0.2"} = CLI.evaluate(["--version"])
+    forbidden = fn -> raise "version path invoked a runtime dependency" end
+
+    deps = %{
+      file_regular?: fn _path -> forbidden.() end,
+      set_workflow_file_path: fn _path -> forbidden.() end,
+      set_logs_root: fn _path -> forbidden.() end,
+      set_server_port_override: fn _port -> forbidden.() end,
+      ensure_all_started: fn -> forbidden.() end
+    }
+
+    assert {:version, "0.0.2"} = CLI.evaluate(["--version"], deps)
   end
 
   test "returns the guardrails acknowledgement banner when the flag is missing" do
