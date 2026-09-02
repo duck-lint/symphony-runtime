@@ -6,6 +6,11 @@ defmodule SymphonyElixir.MixProject do
       app: :symphony_elixir,
       version: "0.0.2",
       elixir: "~> 1.19",
+      # Mix itself owns the default build root so direct invocations cannot
+      # accidentally reuse native output produced by another OS in the shared
+      # F: checkout. MIX_BUILD_ROOT remains an explicit override for CI and
+      # isolated diagnostic runs.
+      build_path: build_path(),
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       test_coverage: [
@@ -101,9 +106,48 @@ defmodule SymphonyElixir.MixProject do
     [
       app: nil,
       main_module: SymphonyElixir.CLI,
-      name: "symphony",
-      path: "bin/symphony"
+      name: "symphony-dev",
+      path: "bin/symphony-dev"
     ]
+  end
+
+  defp build_path do
+    System.get_env("MIX_BUILD_ROOT") ||
+      Path.join([mix_state_root(), mix_platform(), "_build"])
+  end
+
+  defp mix_state_root do
+    state_root =
+      case :os.type() do
+        {:win32, _} ->
+          configured_state_root(
+            "LOCALAPPDATA",
+            Path.join(System.user_home!(), "AppData", "Local")
+          )
+
+        {:unix, _} ->
+          configured_state_root(
+            "XDG_STATE_HOME",
+            Path.join(System.user_home!(), ".local", "state")
+          )
+      end
+
+    Path.join(state_root, "symphony-runtime/mix")
+  end
+
+  defp configured_state_root(variable, fallback) do
+    case System.get_env(variable) do
+      value when is_binary(value) and byte_size(value) > 0 -> value
+      _ -> fallback
+    end
+  end
+
+  defp mix_platform do
+    case :os.type() do
+      {:win32, _} -> "windows"
+      {:unix, :darwin} -> "macos"
+      {:unix, _} -> "linux"
+    end
   end
 
   defp releases do

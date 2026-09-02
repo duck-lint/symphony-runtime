@@ -36,3 +36,15 @@ jobs:
 
       - name: Verify make all
         run: make all
+
+      - name: Install Burrito host prerequisite xz
+        run: sudo apt-get update && sudo apt-get install -y xz-utils
+
+      - name: Verify Burrito prerequisites
+        run: bash scripts/check_artifact_prereqs.sh
+
+      - name: Build Linux production artifact
+        run: make artifact
+
+      - name: Smoke test Linux production artifact
+        run: bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_plane_v1.sqlite3

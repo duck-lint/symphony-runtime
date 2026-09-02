@@ -23,13 +23,27 @@ mise exec -- make ci
 ```
 
 This is the canonical WSL build/test procedure. `make ci` installs
-dependencies, runs `mix hex.audit`, builds the checked-in escript for source
+dependencies, runs `mix hex.audit`, builds the development escript for source
 checks, then runs formatting, lint, coverage, and Dialyzer checks.
 
-The Makefile exports an OS-separated `MIX_BUILD_ROOT` outside the checkout:
-`$HOME/.local/state/symphony-runtime/mix/linux/_build` on WSL/Linux and the
-corresponding user-local Windows path on Windows. The physical F: checkout is
-therefore not a shared native build cache.
+`mix.exs` selects an OS-separated build root for every Mix invocation, including
+direct `mix` commands and Make children. Linux uses
+`$HOME/.local/state/symphony-runtime/mix/linux/_build`; Windows uses the
+corresponding `%LOCALAPPDATA%` path. The physical F: checkout's `_build` is not
+consulted for project dependencies or native output. `MIX_BUILD_ROOT` remains an
+explicit override for an isolated test.
+
+To inspect the resolved path directly on either supported host, run from this
+directory:
+
+```sh
+mix run --no-compile -e 'IO.puts(Mix.Project.build_path())'
+```
+
+The result must be under the Windows `.../symphony-runtime/mix/windows/_build`
+root or the Linux `.../symphony-runtime/mix/linux/_build` root. `make build`
+and `make test` invoke the same project-level configuration; they must not
+reintroduce the checkout `_build`.
 
 The self-contained production artifact is written to:
 
@@ -44,6 +58,10 @@ the application version without starting the service. `--check-tracker
 configured pilot schema and performs one project-scoped SQLite read without
 requiring the acknowledgement flag or starting the service.
 
+The repository pins Zig `0.15.2` in `mise.toml`. Burrito also requires host
+`xz` and `make`; `make artifact` performs an early version/tool presence check
+and fails before the release build if either is absent.
+
 For the source-level checks individually, use the corresponding Make targets:
 
 ```sh
@@ -53,12 +71,19 @@ mise exec -- make coverage
 mise exec -- make dialyzer
 ```
 
-The artifact target also stages that exact Burrito executable at the ignored
-`bin/symphony` path, preserving the Step 1 path/version/SHA pinning seam. A
-plain `mix build` overwrites that path with the non-production escript, so it is
-not a deployment build. Pilot treats the selected executable as host runtime
-input and pins its reported version and SHA-256 digest before launch; the
-executable itself is not copied into a generated project deployment.
+The artifact target stages the production Burrito executable at the ignored
+`bin/symphony` path. That path has one meaning: the deployable runtime used by
+Pilot's Step 1 path/version/SHA pinning seam. A plain `mix build` stages its
+development escript at `bin/symphony-dev` and cannot replace the production
+path. Pilot treats the selected executable as host runtime input and pins its
+reported version and SHA-256 digest before launch; the executable itself is not
+copied into a generated project deployment.
+
+For a local production proof after `make artifact`, run:
+
+```sh
+bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_plane_v1.sqlite3
+```
 
 See [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the bounded provenance and
 pilot-integration evidence recorded during the ownership cutover.

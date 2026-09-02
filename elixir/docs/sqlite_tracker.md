@@ -58,9 +58,10 @@ workpad/lifecycle mutation, and GitHub authority removal remain later steps.
 
 ## Native build and artifact boundary
 
-The physical checkout is used from both Windows and WSL. `Makefile` therefore
-exports an OS-specific `MIX_BUILD_ROOT` outside the checkout so native NIF
-outputs cannot cross-contaminate one another. The canonical Linux command is:
+The physical checkout is used from both Windows and WSL. `mix.exs` therefore
+selects an OS-specific build root outside the checkout for every Mix
+invocation, so direct commands cannot cross-contaminate native NIF outputs.
+Make delegates to that same Mix-level decision. The canonical Linux command is:
 
 ```sh
 /home/duck-lint/.local/bin/mise exec -- make ci
@@ -74,5 +75,9 @@ the BEAM runtime, application, and platform-specific Exqlite NIF. Its
 schema validation and one project-scoped read; it does not start the scheduler
 or grant the model any database capability. The artifact target stages this
 same file at `bin/symphony`, preserving the existing runtime path for the
-version/SHA identity pin. The source `mix build` escript must not be used as a
-production artifact because it does not carry the native release runtime.
+version/SHA identity pin. Source `mix build` writes only `bin/symphony-dev`; it
+does not carry the native release runtime and cannot overwrite the production
+path. `scripts/check_artifact_prereqs.sh` checks the pinned Zig tool plus host
+`xz` and `make` before a Burrito build begins. The artifact smoke script runs
+the built executable against the checked-in pilot-produced fixture and is used
+by both the release smoke and the Linux source-validation workflow.

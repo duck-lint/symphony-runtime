@@ -2,19 +2,9 @@
 
 MIX ?= mix
 
-# Mix writes native dependency output below MIX_BUILD_ROOT. The source checkout
-# is shared by Windows and WSL, so the root must be outside the checkout and
-# include an OS discriminator. This prevents a Windows NIF from being reused by
-# a Linux BEAM (or vice versa) without requiring manual cleanup.
-ifeq ($(OS),Windows_NT)
-MIX_PLATFORM := windows
-MIX_STATE_ROOT ?= $(LOCALAPPDATA)/symphony-runtime/mix
-else
-MIX_PLATFORM := linux
-MIX_STATE_ROOT ?= $(HOME)/.local/state/symphony-runtime/mix
-endif
-
-export MIX_BUILD_ROOT := $(MIX_STATE_ROOT)/$(MIX_PLATFORM)/_build
+# mix.exs owns the default OS-separated build root. Keeping that decision at
+# Mix's project boundary protects direct `mix ...` invocations as well as these
+# Make targets. MIX_BUILD_ROOT remains available as an explicit override.
 
 help:
 	@echo "Targets: setup, deps, audit, build, artifact, fmt, fmt-check, lint, test, coverage, dialyzer, e2e, ci"
@@ -32,6 +22,7 @@ build:
 	$(MIX) build
 
 artifact:
+	bash scripts/check_artifact_prereqs.sh
 	MIX_ENV=prod BURRITO_TARGET=linux_x86_64 $(MIX) release symphony --overwrite
 	mkdir -p bin
 	install -m 0755 burrito_out/symphony_linux_x86_64 bin/symphony

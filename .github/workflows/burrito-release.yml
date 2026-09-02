@@ -32,11 +32,11 @@ jobs:
           cache: true
           working_directory: elixir
 
-      - name: Install Zig
-        run: mise install zig@0.15.2
-
       - name: Install xz
         run: sudo apt-get update && sudo apt-get install -y xz-utils
+
+      - name: Verify Burrito prerequisites
+        run: bash scripts/check_artifact_prereqs.sh
 
       - name: Install Mix dependencies
         run: |
@@ -59,7 +59,7 @@ jobs:
           fi
 
       - name: Build Burrito executable
-        run: BURRITO_TARGET=${{ matrix.target }} MIX_ENV=prod mise exec zig@0.15.2 -- mix release symphony --overwrite
+        run: BURRITO_TARGET=${{ matrix.target }} MIX_ENV=prod mise exec -- mix release symphony --overwrite
 
       - name: Stage release assets
         run: |
@@ -101,6 +101,11 @@ jobs:
             runner: macos-14
 
     steps:
+      - name: Checkout fixture and smoke scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
       - name: Download release assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -120,6 +125,15 @@ jobs:
 
           test "$status" -eq 1
           grep -F "This Symphony implementation is a low key engineering preview." <<<"$output"
+
+      - name: Smoke test SQLite tracker artifact
+        run: |
+          artifact="$(find dist -type f ! -name '*.sha256' -print -quit)"
+          test -n "$artifact"
+          chmod +x "$artifact"
+          bash elixir/scripts/smoke_burrito_sqlite.sh \
+            "$artifact" \
+            elixir/test/fixtures/pilot_control_plane_v1.sqlite3
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
