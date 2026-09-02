@@ -19,6 +19,41 @@ defmodule SymphonyElixir.CLITest do
     assert {:version, "0.0.2"} = CLI.evaluate(["--version"], deps)
   end
 
+  test "checks a workflow's tracker without acknowledgement or starting the service" do
+    parent = self()
+
+    deps = %{
+      file_regular?: fn path ->
+        send(parent, {:workflow_checked, path})
+        true
+      end,
+      set_workflow_file_path: fn path ->
+        send(parent, {:workflow_set, path})
+        :ok
+      end,
+      set_logs_root: fn _path -> raise "check path touched logs" end,
+      set_server_port_override: fn _port -> raise "check path touched server" end,
+      validate_configuration: fn ->
+        send(parent, :configuration_validated)
+        :ok
+      end,
+      fetch_active_issues: fn ->
+        send(parent, :issues_fetched)
+        {:ok, [%SymphonyElixir.Tracker.Issue{id: "task-1", identifier: "T-1", title: "A task", state: "QUEUED"}]}
+      end,
+      ensure_all_started: fn -> raise "check path started the service" end
+    }
+
+    assert {:tracker_check, ["tracker check passed", "issues=1", "task-1\tT-1\tA task\tQUEUED"]} =
+             CLI.evaluate(["--check-tracker", "WORKFLOW.md"], deps)
+
+    assert_received {:workflow_checked, path}
+    assert path == Path.expand("WORKFLOW.md")
+    assert_received {:workflow_set, ^path}
+    assert_received :configuration_validated
+    assert_received :issues_fetched
+  end
+
   test "returns the guardrails acknowledgement banner when the flag is missing" do
     parent = self()
 

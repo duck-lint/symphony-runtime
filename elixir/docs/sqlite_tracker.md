@@ -55,3 +55,24 @@ repository, shell command, or second migration system.
 
 Scheduler cutover, runtime configuration generation by pilot, SQLite writes,
 workpad/lifecycle mutation, and GitHub authority removal remain later steps.
+
+## Native build and artifact boundary
+
+The physical checkout is used from both Windows and WSL. `Makefile` therefore
+exports an OS-specific `MIX_BUILD_ROOT` outside the checkout so native NIF
+outputs cannot cross-contaminate one another. The canonical Linux command is:
+
+```sh
+/home/duck-lint/.local/bin/mise exec -- make ci
+```
+
+Production packaging uses the existing Burrito release configuration rather
+than the development escript. Run `mise exec -- make artifact` on Linux;
+`burrito_out/symphony_linux_x86_64` is a self-contained executable containing
+the BEAM runtime, application, and platform-specific Exqlite NIF. Its
+`--check-tracker WORKFLOW.md` command is a bounded artifact-level proof of
+schema validation and one project-scoped read; it does not start the scheduler
+or grant the model any database capability. The artifact target stages this
+same file at `bin/symphony`, preserving the existing runtime path for the
+version/SHA identity pin. The source `mix build` escript must not be used as a
+production artifact because it does not carry the native release runtime.

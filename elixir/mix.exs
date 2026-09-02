@@ -74,12 +74,12 @@ defmodule SymphonyElixir.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix, "~> 1.8.0"},
       {:phoenix_html, "~> 4.2"},
-      {:phoenix_live_view, "~> 1.1.0"},
-      {:req, "~> 0.5"},
+      {:phoenix_live_view, "~> 1.2.0"},
+      {:req, "~> 0.7.0"},
       {:jason, "~> 1.4"},
       {:yaml_elixir, "~> 2.12"},
-      {:solid, "~> 1.2"},
-      {:ecto, "~> 3.13"},
+      {:solid, "~> 1.3.0"},
+      {:ecto, "~> 3.14.0"},
       # Direct read-only SQLite access for the Step 3 tracker adapter. The
       # adapter does not need Ecto's persistence layer or pilot's migrations.
       {:exqlite, "~> 0.39.0"},

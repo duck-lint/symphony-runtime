@@ -8,6 +8,7 @@ defmodule SymphonyElixir.CLI do
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @switches [
     {@acknowledgement_switch, :boolean},
+    check_tracker: :string,
     logs_root: :string,
     port: :integer,
     version: :boolean
@@ -20,6 +21,8 @@ defmodule SymphonyElixir.CLI do
           set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
           set_logs_root: (String.t() -> :ok | {:error, term()}),
           set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
+          validate_configuration: (-> :ok | {:error, term()}),
+          fetch_active_issues: (-> {:ok, [SymphonyElixir.Tracker.Issue.t()]} | {:error, term()}),
           ensure_all_started: (-> ensure_started_result())
         }
 
@@ -39,6 +42,10 @@ defmodule SymphonyElixir.CLI do
         IO.puts(version)
         System.halt(0)
 
+      {:tracker_check, lines} ->
+        IO.puts(Enum.join(lines, "\n"))
+        System.halt(0)
+
       {:error, message} ->
         IO.puts(:stderr, message)
         System.halt(1)
@@ -46,7 +53,7 @@ defmodule SymphonyElixir.CLI do
   end
 
   @spec evaluate([String.t()], deps()) ::
-          :ok | {:version, String.t()} | {:error, String.t()}
+          :ok | {:version, String.t()} | {:tracker_check, [String.t()]} | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
       {opts, [], []} ->
@@ -65,19 +72,52 @@ defmodule SymphonyElixir.CLI do
   end
 
   @spec evaluate_options(keyword(), deps()) ::
-          :ok | {:version, String.t()} | {:error, String.t()}
+          :ok | {:version, String.t()} | {:tracker_check, [String.t()]} | {:error, String.t()}
   defp evaluate_options(opts, deps) do
-    case Keyword.get(opts, :version, false) do
-      true ->
+    cond do
+      is_binary(Keyword.get(opts, :check_tracker)) ->
+        check_tracker(Keyword.fetch!(opts, :check_tracker), deps)
+
+      Keyword.get(opts, :version, false) ->
         {:version, @version}
 
-      false ->
+      true ->
         with :ok <- require_guardrails_acknowledgement(opts),
              :ok <- maybe_set_logs_root(opts, deps),
              :ok <- maybe_set_server_port(opts, deps) do
           run(Path.expand("WORKFLOW.md"), deps)
         end
     end
+  end
+
+  @spec check_tracker(String.t(), deps()) ::
+          {:tracker_check, [String.t()]} | {:error, String.t()}
+  defp check_tracker(workflow_path, deps) do
+    expanded_path = Path.expand(workflow_path)
+
+    if deps.file_regular?.(expanded_path) do
+      :ok = deps.set_workflow_file_path.(expanded_path)
+
+      with :ok <- deps.validate_configuration.(),
+           {:ok, issues} <- deps.fetch_active_issues.() do
+        {:tracker_check,
+         [
+           "tracker check passed",
+           "issues=" <> Integer.to_string(length(issues))
+           | Enum.map(issues, &format_tracker_check_issue/1)
+         ]}
+      else
+        {:error, reason} ->
+          {:error, "Tracker check failed for #{expanded_path}: #{inspect(reason)}"}
+      end
+    else
+      {:error, "Workflow file not found: #{expanded_path}"}
+    end
+  end
+
+  @spec format_tracker_check_issue(SymphonyElixir.Tracker.Issue.t()) :: String.t()
+  defp format_tracker_check_issue(issue) do
+    Enum.map_join([issue.id, issue.identifier, issue.title, issue.state], "\t", &to_string/1)
   end
 
   @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
@@ -101,7 +141,7 @@ defmodule SymphonyElixir.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
+    "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md] | symphony --check-tracker <path-to-WORKFLOW.md>"
   end
 
   @spec runtime_deps() :: deps()
@@ -111,8 +151,15 @@ defmodule SymphonyElixir.CLI do
       set_workflow_file_path: &SymphonyElixir.Workflow.set_workflow_file_path/1,
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
+      validate_configuration: &SymphonyElixir.Config.validate!/0,
+      fetch_active_issues: &fetch_active_issues/0,
       ensure_all_started: ensure_all_started
     }
+  end
+
+  defp fetch_active_issues do
+    settings = SymphonyElixir.Config.settings!()
+    SymphonyElixir.Tracker.fetch_issues_by_states(settings.tracker.active_states)
   end
 
   defp maybe_set_logs_root(opts, deps) do
