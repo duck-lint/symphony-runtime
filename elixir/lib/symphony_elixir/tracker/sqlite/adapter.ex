@@ -112,6 +112,27 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
     with_validated_connection(tracker_settings, function, on_open)
   end
 
+  @doc false
+  @spec open_readonly_for_test(String.t(), (reference() -> :ok | {:error, term()})) ::
+          {:ok, reference()} | {:error, term()}
+  def open_readonly_for_test(path, configure) when is_binary(path) and is_function(configure, 1) do
+    open_readonly(path, configure)
+  end
+
+  @doc false
+  @spec validate_required_columns_for_test(reference()) :: :ok | {:error, term()}
+  def validate_required_columns_for_test(connection), do: validate_required_columns(connection)
+
+  @doc false
+  @spec query_for_test(reference(), String.t(), list()) :: {:ok, list()} | {:error, term()}
+  def query_for_test(connection, sql, parameters) when is_binary(sql) and is_list(parameters) do
+    query(connection, sql, parameters)
+  end
+
+  @doc false
+  @spec normalize_row_for_test(list()) :: {:ok, Issue.t()} | {:error, term()}
+  def normalize_row_for_test(row) when is_list(row), do: normalize_row(row)
+
   @spec agent_tool_specs() :: [map()]
   def agent_tool_specs, do: []
 
@@ -252,10 +273,12 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
   end
 
   @spec open_readonly(String.t()) :: {:ok, reference()} | {:error, term()}
-  defp open_readonly(path) do
+  defp open_readonly(path), do: open_readonly(path, &configure_readonly/1)
+
+  defp open_readonly(path, configure) do
     case Sqlite3.open(path, mode: :readonly) do
       {:ok, connection} ->
-        case configure_readonly(connection) do
+        case configure.(connection) do
           :ok ->
             {:ok, connection}
 

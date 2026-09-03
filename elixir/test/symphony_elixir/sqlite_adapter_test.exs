@@ -73,6 +73,21 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
     refute Enum.any?(queued, &(&1.id == @beta_queued))
   end
 
+  test "public tracker callbacks use the configured SQLite tracker" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "sqlite",
+      tracker_database_path: fixture_path(),
+      tracker_project_slug: "alpha",
+      tracker_active_states: ["QUEUED"],
+      tracker_terminal_states: ["READY_FOR_HUMAN_MERGE"]
+    )
+
+    assert {:ok, [%{id: @alpha_queued}, %{id: @alpha_project_blocked}]} =
+             Adapter.fetch_issues_by_states(["QUEUED"])
+
+    assert {:ok, [%{id: @alpha_queued}]} = Adapter.fetch_issues_by_ids([@alpha_queued])
+  end
+
   test "id reads use local task UUIDs and cannot leak another project" do
     settings = settings()
 
@@ -83,6 +98,18 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
              )
 
     assert Enum.map(issues, & &1.id) == [@alpha_queued]
+  end
+
+  test "invalid state and id inputs fail closed and empty id reads stay empty" do
+    settings = settings()
+
+    assert {:error, :invalid_sqlite_states} =
+             Adapter.fetch_issues_by_states_for_test(["QUEUED", 42], settings)
+
+    assert {:error, :invalid_sqlite_issue_ids} =
+             Adapter.fetch_issues_by_ids_for_test([42], settings)
+
+    assert {:ok, []} = Adapter.fetch_issues_by_ids_for_test([], settings)
   end
 
   test "read-only configuration and fetches do not mutate the pilot-produced fixture" do
@@ -120,6 +147,40 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
 
     assert {:error, :sqlite_database_path_must_be_absolute} =
              Adapter.validate_config(settings(database_path: "relative.sqlite3"))
+
+    assert {:error, :missing_sqlite_database_path} =
+             Adapter.validate_config(settings(database_path: "   "))
+
+    assert {:error, :missing_sqlite_database_path} =
+             Adapter.validate_config(settings(database_path: nil))
+
+    assert {:error, {:sqlite_database_inaccessible, _reason}} =
+             Adapter.validate_config(settings(database_path: "/tmp/symphony-invalid-null\0.sqlite3"))
+  end
+
+  test "regular but invalid SQLite files fail during contract validation" do
+    path = Path.join(System.tmp_dir!(), "symphony-invalid-db-#{System.unique_integer([:positive])}.sqlite3")
+    File.write!(path, "not a SQLite database")
+
+    on_exit(fn -> File.rm(path) end)
+
+    assert {:sqlite_query_failed, _reason} = Adapter.validate_config(settings(database_path: path))
+  end
+
+  test "unreadable regular SQLite files fail at open on POSIX" do
+    if match?({:unix, _}, :os.type()) do
+      path = Path.join(System.tmp_dir!(), "symphony-unreadable-db-#{System.unique_integer([:positive])}.sqlite3")
+      File.write!(path, "unreadable")
+      File.chmod!(path, 0o000)
+
+      on_exit(fn ->
+        File.chmod(path, 0o600)
+        File.rm(path)
+      end)
+
+      assert {:error, {:sqlite_open_failed, _reason}} =
+               Adapter.validate_config(settings(database_path: path))
+    end
   end
 
   test "schema version, migration identity, partial schema, and required timestamps fail closed" do
@@ -132,13 +193,23 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
             "DROP TABLE blockers",
             {:sqlite_incompatible_schema, {:missing_columns, "blockers", ["task_id", "kind", "status"]}}
           },
-          {"timestamp", "UPDATE tasks SET created_at = 'not-a-timestamp'", {:sqlite_malformed_timestamp, :created_at}}
+          {
+            "missing-field",
+            "UPDATE tasks SET id = NULL WHERE id = '#{@alpha_queued}'",
+            {:sqlite_invalid_task_row, {:missing, :id}}
+          },
+          {"timestamp", "UPDATE tasks SET created_at = 'not-a-timestamp'", {:sqlite_malformed_timestamp, :created_at}},
+          {
+            "null-timestamp",
+            "UPDATE tasks SET created_at = zeroblob(1) WHERE id = '#{@alpha_queued}'",
+            {:sqlite_malformed_timestamp, :created_at}
+          }
         ] do
       path = copy_fixture(name)
       execute_mutation(path, mutation)
 
       result =
-        if name == "timestamp" do
+        if name in ["timestamp", "missing-field", "null-timestamp"] do
           Adapter.fetch_issues_by_states_for_test(["QUEUED"], settings(database_path: path))
         else
           Adapter.validate_config(settings(database_path: path))
@@ -185,6 +256,50 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
 
     assert_receive {:opened, connection}
     assert {:error, _reason} = Sqlite3.prepare(connection, "SELECT 1")
+  end
+
+  test "covers defensive SQLite error boundaries and malformed normalized rows" do
+    assert {:error, {:sqlite_open_failed, :forced_configuration_failure}} =
+             Adapter.open_readonly_for_test(fixture_path(), fn _connection ->
+               {:error, :forced_configuration_failure}
+             end)
+
+    {:ok, closed_connection} = Sqlite3.open(fixture_path(), mode: :readonly)
+    assert :ok = Sqlite3.close(closed_connection)
+
+    assert {:error, {:sqlite_query_failed, _reason}} =
+             Adapter.query_for_test(closed_connection, "SELECT 1", [])
+
+    assert {:error, {:sqlite_query_failed, _reason}} =
+             Adapter.validate_required_columns_for_test(closed_connection)
+
+    assert {:error, {:sqlite_invalid_task_row, []}} = Adapter.normalize_row_for_test([])
+
+    assert {:error, {:sqlite_invalid_task_row, {:missing, :id}}} =
+             Adapter.normalize_row_for_test([
+               nil,
+               "T-000001",
+               "title",
+               "objective",
+               "QUEUED",
+               "branch",
+               "2026-09-01T12:00:00Z",
+               "2026-09-01T12:00:00Z",
+               0
+             ])
+
+    assert {:error, {:sqlite_malformed_timestamp, nil}} =
+             Adapter.normalize_row_for_test([
+               "11111111-1111-1111-1111-111111111111",
+               "T-000001",
+               "title",
+               "objective",
+               "QUEUED",
+               "branch",
+               nil,
+               "2026-09-01T12:00:00Z",
+               0
+             ])
   end
 
   defp settings(overrides \\ []) do
