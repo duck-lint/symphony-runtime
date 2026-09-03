@@ -122,13 +122,13 @@ defmodule SymphonyElixir.MixProject do
         {:win32, _} ->
           configured_state_root(
             "LOCALAPPDATA",
-            Path.join(System.user_home!(), "AppData", "Local")
+            Path.join([System.user_home!(), "AppData", "Local"])
           )
 
         {:unix, _} ->
           configured_state_root(
             "XDG_STATE_HOME",
-            Path.join(System.user_home!(), ".local", "state")
+            Path.join([System.user_home!(), ".local", "state"])
           )
       end
 
