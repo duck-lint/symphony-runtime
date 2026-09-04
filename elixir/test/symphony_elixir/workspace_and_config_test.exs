@@ -807,6 +807,37 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Orchestrator.should_dispatch_issue_for_test(issue, state)
   end
 
+  test "orchestrator active states remain the scheduler gate after SQLite routing" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "sqlite",
+      tracker_database_path: Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__),
+      tracker_project_slug: "alpha",
+      tracker_active_states: ["PLANNED"],
+      tracker_terminal_states: ["READY_FOR_HUMAN_MERGE"]
+    )
+
+    state = %Orchestrator.State{
+      max_concurrent_agents: 3,
+      running: %{},
+      claimed: MapSet.new(),
+      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+      retry_attempts: %{}
+    }
+
+    unblocked_planned = %Issue{
+      id: "planned-1",
+      identifier: "T-000001",
+      title: "Planned work",
+      state: "PLANNED",
+      dispatchable: true
+    }
+
+    unblocked_queued = %{unblocked_planned | id: "queued-1", state: "QUEUED"}
+
+    assert Orchestrator.should_dispatch_issue_for_test(unblocked_planned, state)
+    refute Orchestrator.should_dispatch_issue_for_test(unblocked_queued, state)
+  end
+
   test "dispatch revalidation skips an issue when provider routing changes" do
     stale_issue = %Issue{
       id: "blocked-2",

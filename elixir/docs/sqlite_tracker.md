@@ -23,19 +23,29 @@ The adapter supports pilot schema version `1` and migration identity
 queries. A missing, newer, partial, incompatible, or unreadable database is an
 error; it is never represented as an empty task list.
 
-The explicit Step 3 eligibility rule is:
+The adapter routing rule is:
 
 ```text
-dispatchable = (tasks.state = 'QUEUED') AND no open blockers for the task
+dispatchable = no open blockers for the task
 ```
 
-`HUMAN_BLOCKED`, `INFRASTRUCTURE_BLOCKED`, and
-`READY_FOR_HUMAN_MERGE` are therefore not dispatchable. `project` blockers are
-read through the same open-blocker predicate and remain a distinct pilot-side
-kind; the adapter does not manufacture `blocked_by` dependency semantics.
-`active_states` defaults to `QUEUED` for SQLite configuration and remains the
-orchestrator's requested read set. An empty requested state list returns no
-tasks, not all tasks.
+The orchestrator applies the independent scheduling rule:
+
+```text
+scheduler-eligible = tasks.state ∈ configured tracker.active_states
+```
+
+Both gates must pass before a task is dispatched. This lets Pilot advance a
+task through its lifecycle without teaching Runtime a second lifecycle
+vocabulary. `HUMAN_BLOCKED`, `INFRASTRUCTURE_BLOCKED`, and
+`READY_FOR_HUMAN_MERGE` remain non-dispatchable unless explicitly requested
+and unblocked; the managed Step-6 workflow does not request them. `project`
+blockers are read through the same open-blocker predicate and remain a
+distinct pilot-side kind; the adapter does not manufacture `blocked_by`
+dependency semantics. `active_states` defaults to `QUEUED` for a bare SQLite
+configuration, while Step-6 workflow generation explicitly requests its
+active lifecycle states. An empty requested state list returns no tasks, not
+all tasks.
 
 Rows are scoped by `project_slug` for both state and UUID reads. Local task
 UUIDs are the normalized `Issue.id`; labels, native references, URLs,
