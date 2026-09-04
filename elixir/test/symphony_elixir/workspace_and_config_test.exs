@@ -836,6 +836,11 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     assert Orchestrator.should_dispatch_issue_for_test(unblocked_planned, state)
     refute Orchestrator.should_dispatch_issue_for_test(unblocked_queued, state)
+
+    ready = %{unblocked_planned | id: "ready-1", state: "READY_FOR_HUMAN_MERGE"}
+    archivist = %{unblocked_planned | id: "archivist-1", state: "ARCHIVIST"}
+    refute Orchestrator.should_dispatch_issue_for_test(ready, state)
+    refute Orchestrator.should_dispatch_issue_for_test(archivist, state)
   end
 
   test "dispatch revalidation skips an issue when provider routing changes" do

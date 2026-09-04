@@ -67,7 +67,9 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
 
     assert {:ok, [ready]} = Adapter.fetch_issues_by_states_for_test(["READY_FOR_HUMAN_MERGE"], settings)
     assert ready.id == @alpha_ready
-    refute ready.dispatchable
+    # The adapter reports only the blocker gate. The orchestrator's configured
+    # active/terminal state policy still rejects this row for dispatch.
+    assert ready.dispatchable
 
     assert {:ok, []} = Adapter.fetch_issues_by_states_for_test([], settings)
     refute Enum.any?(queued, &(&1.id == @beta_queued))
