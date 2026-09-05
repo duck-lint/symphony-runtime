@@ -63,14 +63,56 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
              Adapter.fetch_issues_by_states_for_test(["HUMAN_BLOCKED"], settings)
 
     assert human_blocked.id == @alpha_human_blocked
-    refute human_blocked.dispatchable
+    # This legacy fixture has a state label but no open blocker row. Only the
+    # configured orchestrator state policy excludes it from scheduling.
+    assert human_blocked.dispatchable
 
     assert {:ok, [ready]} = Adapter.fetch_issues_by_states_for_test(["READY_FOR_HUMAN_MERGE"], settings)
     assert ready.id == @alpha_ready
-    refute ready.dispatchable
+    # The adapter reports only the blocker gate. The orchestrator's configured
+    # active/terminal state policy still rejects this row for dispatch.
+    assert ready.dispatchable
 
     assert {:ok, []} = Adapter.fetch_issues_by_states_for_test([], settings)
     refute Enum.any?(queued, &(&1.id == @beta_queued))
+  end
+
+  test "adapter routing is blocker-only for every lifecycle state" do
+    for state <- [
+          "QUEUED",
+          "PLANNED",
+          "IMPLEMENTED",
+          "REVIEW",
+          "ADVERSARIAL_REVIEW",
+          "FINAL_MECHANICAL_ACCEPTANCE",
+          "ARCHIVIST"
+        ] do
+      assert {:ok, %Issue{state: ^state, dispatchable: true}} =
+               Adapter.normalize_row_for_test([
+                 "11111111-1111-1111-1111-111111111111",
+                 "T-000001",
+                 "title",
+                 "objective",
+                 state,
+                 "codex/task",
+                 "2026-09-01T12:00:00Z",
+                 "2026-09-01T12:00:00Z",
+                 0
+               ])
+
+      assert {:ok, %Issue{state: ^state, dispatchable: false}} =
+               Adapter.normalize_row_for_test([
+                 "11111111-1111-1111-1111-111111111111",
+                 "T-000001",
+                 "title",
+                 "objective",
+                 state,
+                 "codex/task",
+                 "2026-09-01T12:00:00Z",
+                 "2026-09-01T12:00:00Z",
+                 1
+               ])
+    end
   end
 
   test "public tracker callbacks use the configured SQLite tracker" do

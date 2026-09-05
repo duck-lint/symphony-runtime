@@ -435,6 +435,9 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
     end
   end
 
-  defp dispatchable?("QUEUED", 0), do: true
+  # The adapter answers only the local routing question: is this task free of
+  # open Pilot blockers? The orchestrator separately applies its configured
+  # active-state set, so Runtime does not duplicate Pilot's lifecycle graph.
+  defp dispatchable?(_state, 0), do: true
   defp dispatchable?(_state, _has_open_blocker), do: false
 end
