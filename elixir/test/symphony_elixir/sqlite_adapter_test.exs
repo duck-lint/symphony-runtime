@@ -63,7 +63,9 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
              Adapter.fetch_issues_by_states_for_test(["HUMAN_BLOCKED"], settings)
 
     assert human_blocked.id == @alpha_human_blocked
-    refute human_blocked.dispatchable
+    # This legacy fixture has a state label but no open blocker row. Only the
+    # configured orchestrator state policy excludes it from scheduling.
+    assert human_blocked.dispatchable
 
     assert {:ok, [ready]} = Adapter.fetch_issues_by_states_for_test(["READY_FOR_HUMAN_MERGE"], settings)
     assert ready.id == @alpha_ready
