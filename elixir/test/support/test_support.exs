@@ -11,7 +11,6 @@ defmodule SymphonyElixir.TestSupport do
       alias SymphonyElixir.Codex.AppServer
       alias SymphonyElixir.Config
       alias SymphonyElixir.HttpServer
-      alias SymphonyElixir.Linear.Client
       alias SymphonyElixir.Orchestrator
       alias SymphonyElixir.PromptBuilder
       alias SymphonyElixir.StatusDashboard
@@ -91,15 +90,15 @@ defmodule SymphonyElixir.TestSupport do
     config =
       Keyword.merge(
         [
-          tracker_kind: "linear",
-          tracker_endpoint: "https://api.linear.app/graphql",
-          tracker_api_token: "token",
-          tracker_project_slug: "project",
-          tracker_database_path: nil,
+          tracker_kind: "sqlite",
+          tracker_endpoint: nil,
+          tracker_api_token: nil,
+          tracker_project_slug: "alpha",
+          tracker_database_path: Path.expand(Path.join(__DIR__, "../fixtures/pilot_control_plane_v1.sqlite3")),
           tracker_assignee: nil,
           tracker_required_labels: [],
-          tracker_active_states: ["Todo", "In Progress"],
-          tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+          tracker_active_states: ["QUEUED"],
+          tracker_terminal_states: ["READY_FOR_HUMAN_MERGE"],
           poll_interval_ms: 30_000,
           workspace_root: Path.join(System.tmp_dir!(), "symphony_workspaces"),
           worker_ssh_hosts: [],

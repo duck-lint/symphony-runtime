@@ -80,6 +80,7 @@ build command and the explicit `SYMPHONY_BIN` path supplied to pinning.
 
 ## Deferred seams
 
-SQLite task tracking, GitHub tracker removal, local browser control, task
-identity changes, and the Codex App Server credential boundary are later
-handoff steps. They are intentionally not implemented by this baseline.
+SQLite task tracking remains the host-owned route. Local browser control,
+Runtime pin-to-exec, SSH worker topology, and the Codex App Server credential
+boundary remain outside this cleanup; the credential boundary is required but
+unresolved for activation.

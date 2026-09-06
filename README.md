@@ -16,7 +16,7 @@ Physical runtime work is performed from the WSL/Linux environment. From the
 WSL view of this checkout:
 
 ```sh
-cd /mnt/f/PROJECT-REPOS/symphony-runtime/elixir
+cd /mnt/f/PROJECT-REPOS/SYMPHONY/symphony-runtime/elixir
 mise trust
 mise install
 mise exec -- make ci

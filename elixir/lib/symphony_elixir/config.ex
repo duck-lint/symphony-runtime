@@ -116,10 +116,15 @@ defmodule SymphonyElixir.Config do
   @doc false
   @spec validate_settings(Schema.t()) :: :ok | {:error, term()}
   def validate_settings(settings) do
-    if is_nil(settings.tracker.kind) do
-      {:error, :missing_tracker_kind}
-    else
-      Tracker.validate_config(settings.tracker)
+    case settings.tracker.kind do
+      nil ->
+        {:error, :missing_tracker_kind}
+
+      "sqlite" ->
+        Tracker.validate_config(settings.tracker)
+
+      kind ->
+        {:error, {:unsupported_tracker_kind, kind}}
     end
   end
 

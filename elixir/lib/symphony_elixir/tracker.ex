@@ -10,13 +10,11 @@ defmodule SymphonyElixir.Tracker do
   alias SymphonyElixir.Config
   alias SymphonyElixir.Tracker.Issue
 
+  # Runtime scheduling is deliberately bound to the host-owned SQLite
+  # projection. Other tracker implementations remain available as historical
+  # source/provenance until their authorized deletion entries are applied, but
+  # they are not selectable through the production adapter boundary.
   @adapters %{
-    "asana" => SymphonyElixir.Asana.Adapter,
-    "github" => SymphonyElixir.GitHub.Adapter,
-    "gitlab" => SymphonyElixir.GitLab.Adapter,
-    "jira" => SymphonyElixir.Jira.Adapter,
-    "linear" => SymphonyElixir.Linear.Adapter,
-    "memory" => SymphonyElixir.Tracker.Memory,
     "sqlite" => SymphonyElixir.Tracker.SQLite.Adapter
   }
 

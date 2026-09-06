@@ -32,6 +32,24 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
     assert response["output"] =~ "Unsupported dynamic tool"
   end
 
+  test "sqlite is the only production tracker route and rejects provider credentials" do
+    for kind <- ["asana", "github", "gitlab", "jira", "linear", "memory"] do
+      assert {:error, {:unsupported_tracker_kind, ^kind}} = Tracker.adapter_for_kind(kind)
+    end
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "linear",
+      tracker_api_token: "$LINEAR_API_KEY",
+      tracker_project_slug: "retired-provider",
+      codex_command: "/bin/sh app-server"
+    )
+
+    assert {:error, {:unsupported_tracker_kind, "linear"}} = Config.validate!()
+    assert Config.settings!().tracker.kind == "sqlite"
+    assert Config.settings!().tracker.secret_environment_names == []
+    assert Config.settings!().tracker.api_key == nil
+  end
+
   test "accepted pilot fixture maps local tasks and filters every state read by project" do
     settings = settings()
     assert :ok = Adapter.validate_config(settings)

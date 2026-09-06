@@ -1,6 +1,10 @@
 defmodule SymphonyElixir.OrchestratorStatusTest do
   use SymphonyElixir.TestSupport
 
+  alias Exqlite.Sqlite3
+
+  @sqlite_seed_id "11111111-1111-1111-1111-111111111111"
+
   test "snapshot returns :timeout when snapshot server is unresponsive" do
     server_name = Module.concat(__MODULE__, :UnresponsiveSnapshotServer)
     parent = self()
@@ -800,8 +804,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator triggers an immediate poll cycle shortly after startup" do
+    database_path = sqlite_fixture_copy("immediate-startup")
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
       poll_interval_ms: 5_000
     )
 
@@ -852,8 +859,11 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator poll cycle resets next refresh countdown after a check" do
+    database_path = sqlite_fixture_copy("poll-cycle")
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
       poll_interval_ms: 50
     )
 
@@ -901,12 +911,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator restarts stalled workers with retry backoff" do
+    database_path = sqlite_fixture_copy("stalled-worker")
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
+      tracker_project_slug: "test-project",
       codex_stall_timeout_ms: 1_000
     )
 
-    issue_id = "issue-stall"
+    issue_id = @sqlite_seed_id
     orchestrator_name = Module.concat(__MODULE__, :StallOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -943,7 +957,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       started_at: stale_activity_at
     }
 
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [running_entry.issue])
+    sqlite_seed_issue!(database_path, running_entry.issue, "test-project")
 
     :sys.replace_state(pid, fn _ ->
       initial_state
@@ -973,12 +987,16 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator blocks stalled workers that are waiting on MCP elicitation" do
+    database_path = sqlite_fixture_copy("mcp-elicitation-stall")
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
+      tracker_project_slug: "test-project",
       codex_stall_timeout_ms: 1_000
     )
 
-    issue_id = "issue-mcp-elicitation-stall"
+    issue_id = @sqlite_seed_id
     orchestrator_name = Module.concat(__MODULE__, :McpElicitationBlockOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -1022,7 +1040,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       started_at: stale_activity_at
     }
 
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [running_entry.issue])
+    sqlite_seed_issue!(database_path, running_entry.issue, "test-project")
 
     :sys.replace_state(pid, fn _ ->
       initial_state
@@ -1059,9 +1077,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator blocks failed workers after app-server reports input required" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    database_path = sqlite_fixture_copy("input-required")
 
-    issue_id = "issue-input-required"
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
+      tracker_project_slug: "test-project"
+    )
+
+    issue_id = @sqlite_seed_id
     orchestrator_name = Module.concat(__MODULE__, :InputRequiredBlockOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -1091,7 +1115,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       started_at: started_at
     }
 
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [running_entry.issue])
+    sqlite_seed_issue!(database_path, running_entry.issue, "test-project")
 
     :sys.replace_state(pid, fn _ ->
       initial_state
@@ -1114,9 +1138,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
   end
 
   test "orchestrator blocks normal worker exits after input required completion" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    database_path = sqlite_fixture_copy("input-required-normal")
 
-    issue_id = "issue-input-required-normal"
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
+      tracker_project_slug: "test-project"
+    )
+
+    issue_id = @sqlite_seed_id
     orchestrator_name = Module.concat(__MODULE__, :InputRequiredNormalBlockOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
@@ -1147,7 +1177,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       started_at: DateTime.utc_now()
     }
 
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [running_entry.issue])
+    sqlite_seed_issue!(database_path, running_entry.issue, "test-project")
 
     :sys.replace_state(pid, fn _ ->
       initial_state
@@ -1180,22 +1210,6 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     refute rendered =~ "Timestamp:"
   end
 
-  test "status dashboard renders linear project link in header" do
-    snapshot_data =
-      {:ok,
-       %{
-         running: [],
-         retrying: [],
-         codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-         rate_limits: nil
-       }}
-
-    rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
-
-    assert rendered =~ "https://linear.app/project/project/issues"
-    refute rendered =~ "Dashboard:"
-  end
-
   test "status dashboard renders dashboard url on its own line when server port is configured" do
     previous_port_override = Application.get_env(:symphony_elixir, :server_port_override)
 
@@ -1221,7 +1235,6 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     rendered = StatusDashboard.format_snapshot_content_for_test(snapshot_data, 0.0)
 
     assert rendered =~ "│ Project:"
-    assert rendered =~ "https://linear.app/project/project/issues"
     assert rendered =~ "│ Dashboard:"
     assert rendered =~ "http://127.0.0.1:4000/"
   end
@@ -1605,7 +1618,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
       {"item/fileChange/outputDelta", %{"params" => %{"outputDelta" => "changed"}}, "file change output streaming"},
       {"item/commandExecution/requestApproval", %{"params" => %{"parsedCmd" => "git status"}}, "command approval requested (git status)"},
       {"item/fileChange/requestApproval", %{"params" => %{"fileChangeCount" => 2}}, "file change approval requested (2 files)"},
-      {"item/tool/call", %{"params" => %{"tool" => "linear_graphql"}}, "dynamic tool call requested (linear_graphql)"},
+      {"item/tool/call", %{"params" => %{"tool" => "custom_tool"}}, "dynamic tool call requested (custom_tool)"},
       {"item/tool/requestUserInput", %{"params" => %{"question" => "Continue?"}}, "tool requires user input: Continue?"}
     ]
 
@@ -1623,14 +1636,14 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     completed = %{
       event: :tool_call_completed,
       message: %{
-        payload: %{"method" => "item/tool/call", "params" => %{"name" => "linear_graphql"}}
+        payload: %{"method" => "item/tool/call", "params" => %{"name" => "custom_tool"}}
       }
     }
 
     failed = %{
       event: :tool_call_failed,
       message: %{
-        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "linear_graphql"}}
+        payload: %{"method" => "item/tool/call", "params" => %{"tool" => "custom_tool"}}
       }
     }
 
@@ -1642,10 +1655,10 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
     }
 
     assert StatusDashboard.humanize_codex_message(completed) =~
-             "dynamic tool call completed (linear_graphql)"
+             "dynamic tool call completed (custom_tool)"
 
     assert StatusDashboard.humanize_codex_message(failed) =~
-             "dynamic tool call failed (linear_graphql)"
+             "dynamic tool call failed (custom_tool)"
 
     assert StatusDashboard.humanize_codex_message(unsupported) =~
              "unsupported dynamic tool call rejected (unknown_tool)"
@@ -1749,6 +1762,37 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert rendered =~ "app_status=offline"
     refute rendered =~ "Timestamp:"
+  end
+
+  defp sqlite_fixture_copy(name) do
+    path = Path.join(System.tmp_dir!(), "symphony-status-#{name}-#{System.unique_integer([:positive])}.sqlite3")
+    File.cp!(Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__), path)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm(path <> "-wal")
+      File.rm(path <> "-shm")
+    end)
+
+    path
+  end
+
+  defp sqlite_seed_issue!(path, %Issue{} = issue, project_slug) do
+    quote_sql = fn value -> "'" <> String.replace(to_string(value), "'", "''") <> "'" end
+
+    sql =
+      "DELETE FROM blockers WHERE task_id = " <> quote_sql.(@sqlite_seed_id) <> "; " <>
+        "UPDATE tasks SET project_slug = " <> quote_sql.(project_slug) <>
+        ", identifier = " <> quote_sql.(issue.identifier) <>
+        ", title = " <> quote_sql.(issue.title) <>
+        ", objective = " <> quote_sql.(issue.description || "") <>
+        ", state = " <> quote_sql.(issue.state) <>
+        ", branch = " <> quote_sql.("codex/" <> String.downcase(issue.identifier)) <>
+        " WHERE id = " <> quote_sql.(@sqlite_seed_id)
+
+    {:ok, connection} = Sqlite3.open(path, mode: :readwrite)
+    :ok = Sqlite3.execute(connection, sql)
+    :ok = Sqlite3.close(connection)
   end
 
   defp wait_for_snapshot(pid, predicate, timeout_ms \\ 200) when is_function(predicate, 1) do

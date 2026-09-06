@@ -4,22 +4,7 @@ defmodule SymphonyElixir.ExtensionsTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias SymphonyElixir.Linear.Adapter
-  alias SymphonyElixir.Tracker.Memory
-
   @endpoint SymphonyElixirWeb.Endpoint
-
-  defmodule FakeLinearClient do
-    def fetch_issues_by_states(states) do
-      send(self(), {:fetch_issues_by_states_called, states})
-      {:ok, states}
-    end
-
-    def fetch_issues_by_ids(issue_ids) do
-      send(self(), {:fetch_issues_by_ids_called, issue_ids})
-      {:ok, issue_ids}
-    end
-  end
 
   defmodule SlowOrchestrator do
     use GenServer
@@ -57,20 +42,6 @@ defmodule SymphonyElixir.ExtensionsTest do
     def handle_call(:request_refresh, _from, state) do
       {:reply, Keyword.get(state, :refresh, :unavailable), state}
     end
-  end
-
-  setup do
-    linear_client_module = Application.get_env(:symphony_elixir, :linear_client_module)
-
-    on_exit(fn ->
-      if is_nil(linear_client_module) do
-        Application.delete_env(:symphony_elixir, :linear_client_module)
-      else
-        Application.put_env(:symphony_elixir, :linear_client_module, linear_client_module)
-      end
-    end)
-
-    :ok
   end
 
   setup do
@@ -117,16 +88,14 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert {:error, {:invalid_workflow_config, _message}} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "linear",
-      tracker_api_token: "token",
-      tracker_project_slug: nil,
+      tracker_database_path: nil,
       prompt: "Semantic-invalid prompt"
     )
 
-    assert {:error, :missing_linear_project_slug} = WorkflowStore.force_reload()
+    assert {:error, :missing_sqlite_database_path} = WorkflowStore.force_reload()
     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
     assert Config.settings!().polling.interval_ms == good_settings.polling.interval_ms
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    assert {:error, :missing_sqlite_database_path} = Config.validate!()
 
     third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "THIRD_WORKFLOW.md")
     write_workflow_file!(third_workflow, prompt: "Third prompt")
@@ -200,43 +169,25 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert :ok = WorkflowStore.force_reload()
   end
 
-  test "tracker delegates to memory and linear adapters" do
-    issue = %Issue{id: "issue-1", identifier: "MT-1", state: "In Progress"}
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue, %{id: "ignored"}])
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+  test "tracker uses the SQLite adapter and rejects alternate tracker kinds" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "sqlite")
 
-    assert Config.settings!().tracker.kind == "memory"
-    assert SymphonyElixir.Tracker.adapter() == Memory
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_states([" in progress ", 42])
-    assert {:ok, [^issue]} = SymphonyElixir.Tracker.fetch_issues_by_ids(["issue-1"])
+    assert Config.settings!().tracker.kind == "sqlite"
+    assert SymphonyElixir.Tracker.adapter() == SymphonyElixir.Tracker.SQLite.Adapter
+    assert {:ok, []} = SymphonyElixir.Tracker.fetch_issues_by_states([])
+    assert {:ok, []} = SymphonyElixir.Tracker.fetch_issues_by_ids([])
 
     binding = SymphonyElixir.Tracker.bind_agent_tools()
-    assert binding.adapter == Memory
+    assert binding.adapter == SymphonyElixir.Tracker.SQLite.Adapter
     assert binding.tool_specs == []
     assert binding.secret_environment_names == []
 
-    assert SymphonyElixir.Tracker.execute_bound_agent_tool(binding, "not_a_memory_tool", %{})[
+    assert SymphonyElixir.Tracker.execute_bound_agent_tool(binding, "not_a_sqlite_tool", %{})[
              "success"
            ] == false
 
     assert {:error, {:unsupported_tracker_kind, "future-tracker"}} =
              SymphonyElixir.Tracker.adapter_for_kind("future-tracker")
-
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
-    assert SymphonyElixir.Tracker.adapter() == Adapter
-    assert SymphonyElixir.Tracker.bind_agent_tools().secret_environment_names == ["LINEAR_API_KEY"]
-  end
-
-  test "linear adapter delegates reads and advertises its native agent tool" do
-    Application.put_env(:symphony_elixir, :linear_client_module, FakeLinearClient)
-
-    assert {:ok, ["Todo"]} = Adapter.fetch_issues_by_states(["Todo"])
-    assert_receive {:fetch_issues_by_states_called, ["Todo"]}
-
-    assert {:ok, ["issue-1"]} = Adapter.fetch_issues_by_ids(["issue-1"])
-    assert_receive {:fetch_issues_by_ids_called, ["issue-1"]}
-
-    assert [%{"name" => "linear_graphql"}] = Adapter.agent_tool_specs()
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

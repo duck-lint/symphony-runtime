@@ -1,11 +1,16 @@
 defmodule SymphonyElixir.CoreTest do
   use SymphonyElixir.TestSupport
 
+  alias Exqlite.Sqlite3
+
+  @sqlite_seed_id "11111111-1111-1111-1111-111111111111"
+
   test "config defaults and validation checks" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
       tracker_api_token: nil,
       tracker_project_slug: nil,
+      tracker_database_path: nil,
       poll_interval_ms: nil,
       tracker_active_states: nil,
       tracker_terminal_states: nil,
@@ -38,26 +43,8 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
     assert message =~ "tracker.active_states"
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "token",
-      tracker_project_slug: nil
-    )
-
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "   ",
-      tracker_project_slug: "project"
-    )
-
-    assert {:error, :missing_linear_api_token} = Config.validate!()
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "token",
-      tracker_project_slug: ""
-    )
-
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_database_path: nil)
+    assert {:error, :missing_sqlite_database_path} = Config.validate!()
 
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_project_slug: "project",
@@ -98,72 +85,6 @@ defmodule SymphonyElixir.CoreTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "123")
     assert {:error, {:unsupported_tracker_kind, "123"}} = Config.validate!()
-  end
-
-  test "current WORKFLOW.md file is valid and complete" do
-    original_workflow_path = Workflow.workflow_file_path()
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-
-    on_exit(fn -> Workflow.set_workflow_file_path(original_workflow_path) end)
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-
-    System.put_env("LINEAR_API_KEY", "test-linear-api-key")
-    Workflow.clear_workflow_file_path()
-
-    assert {:ok, %{config: config, prompt: prompt}} = Workflow.load()
-    assert is_map(config)
-
-    tracker = Map.get(config, "tracker", %{})
-    assert is_map(tracker)
-    assert Map.get(tracker, "kind") == "linear"
-    assert is_binary(get_in(tracker, ["provider", "project_slug"]))
-    assert is_list(Map.get(tracker, "active_states"))
-    assert is_list(Map.get(tracker, "terminal_states"))
-
-    hooks = Map.get(config, "hooks", %{})
-    assert is_map(hooks)
-    refute Map.get(hooks, "after_create") =~ "openai/symphony"
-    assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
-    assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
-
-    assert String.trim(prompt) != ""
-    assert is_binary(Config.workflow_prompt())
-    assert Config.workflow_prompt() == prompt
-  end
-
-  test "linear api token resolves from LINEAR_API_KEY env var" do
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-    env_api_key = "test-linear-api-key"
-
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-    System.put_env("LINEAR_API_KEY", env_api_key)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: nil,
-      tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
-    )
-
-    assert Config.settings!().tracker.api_key == env_api_key
-    assert Config.settings!().tracker.project_slug == "project"
-    assert :ok = Config.validate!()
-  end
-
-  test "linear assignee resolves from LINEAR_ASSIGNEE env var" do
-    previous_linear_assignee = System.get_env("LINEAR_ASSIGNEE")
-    env_assignee = "dev@example.com"
-
-    on_exit(fn -> restore_env("LINEAR_ASSIGNEE", previous_linear_assignee) end)
-    System.put_env("LINEAR_ASSIGNEE", env_assignee)
-
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_assignee: nil,
-      tracker_project_slug: "project",
-      codex_command: "/bin/sh app-server"
-    )
-
-    assert Config.settings!().tracker.assignee == env_assignee
   end
 
   test "workflow file path defaults to WORKFLOW.md in the current working directory when app env is unset" do
@@ -214,8 +135,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "SymphonyElixir.start_link starts the agent runtime" do
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "sqlite")
     runtime_pid = Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)
 
     on_exit(fn ->
@@ -256,7 +176,7 @@ defmodule SymphonyElixir.CoreTest do
         GenServer.stop(pid)
       end
 
-      write_workflow_file!(workflow_path, tracker_kind: "memory")
+      write_workflow_file!(workflow_path, tracker_kind: "sqlite")
 
       if is_nil(Process.whereis(WorkflowStore)) do
         assert {:ok, _pid} = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
@@ -279,14 +199,11 @@ defmodule SymphonyElixir.CoreTest do
 
     assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_api_token: "token",
-      tracker_project_slug: nil
-    )
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_database_path: nil)
 
     previous_trap_exit = Process.flag(:trap_exit, true)
 
-    assert {:error, :missing_linear_project_slug} =
+    assert {:error, :missing_sqlite_database_path} =
              Orchestrator.start_link(name: orchestrator_name)
 
     Process.flag(:trap_exit, previous_trap_exit)
@@ -306,7 +223,7 @@ defmodule SymphonyElixir.CoreTest do
       end
     end)
 
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "sqlite")
 
     assert {:ok, runtime_pid} =
              SymphonyElixir.AgentRuntimeSupervisor.start_link(
@@ -318,14 +235,10 @@ defmodule SymphonyElixir.CoreTest do
     Process.unlink(runtime_pid)
     original_orchestrator_pid = Process.whereis(orchestrator_name)
 
-    write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "linear",
-      tracker_api_token: "token",
-      tracker_project_slug: nil
-    )
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_database_path: nil)
 
-    assert {:error, :missing_linear_project_slug} = Config.validate!()
-    assert Config.settings!().tracker.kind == "memory"
+    assert {:error, :missing_sqlite_database_path} = Config.validate!()
+    assert Config.settings!().tracker.kind == "sqlite"
 
     Process.exit(original_orchestrator_pid, :kill)
 
@@ -363,10 +276,8 @@ defmodule SymphonyElixir.CoreTest do
     task_supervisor_name = Module.concat(__MODULE__, "TaskSupervisor#{issue_suffix}")
     orchestrator_name = Module.concat(__MODULE__, "RestartOrchestrator#{issue_suffix}")
 
-    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
-
     issue = %Issue{
-      id: "issue-restart-#{issue_suffix}",
+      id: @sqlite_seed_id,
       identifier: "MT-#{issue_suffix}",
       title: "Restart an in-flight worker",
       description: "Keep one worker active while the orchestrator restarts",
@@ -381,7 +292,6 @@ defmodule SymphonyElixir.CoreTest do
         GenServer.stop(pid)
       end
 
-      restore_app_env(:memory_tracker_issues, previous_memory_issues)
       restart_default_runtime!()
       File.rm_rf(test_root)
     end)
@@ -394,15 +304,18 @@ defmodule SymphonyElixir.CoreTest do
                )
     end
 
+    database_path = sqlite_fixture_with_issue(issue, "test-project")
+
     write_workflow_file!(Workflow.workflow_file_path(),
-      tracker_kind: "memory",
+      tracker_kind: "sqlite",
+      tracker_database_path: database_path,
+      tracker_project_slug: "test-project",
+      tracker_active_states: ["In Progress"],
       workspace_root: test_root,
       poll_interval_ms: 10,
       hook_before_run: "mkfifo \"#{hook_fifo}\"; : > \"#{hook_marker}\"; read _ < \"#{hook_fifo}\"",
       hook_timeout_ms: 60_000
     )
-
-    Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
 
     assert {:ok, runtime_supervisor_pid} =
              SymphonyElixir.AgentRuntimeSupervisor.start_link(
@@ -472,7 +385,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "linear issue state reconciliation fetch with no running issues is a no-op" do
-    assert {:ok, []} = Client.fetch_issues_by_ids([])
+    assert {:ok, []} = SymphonyElixir.Tracker.fetch_issues_by_ids([])
   end
 
   test "non-active issue state stops running agent without cleaning workspace" do
@@ -689,27 +602,26 @@ defmodule SymphonyElixir.CoreTest do
         "symphony-elixir-missing-running-reconcile-#{System.unique_integer([:positive])}"
       )
 
-    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
     issue_id = "issue-missing"
     issue_identifier = "MT-557"
 
     try do
+      database_path = sqlite_fixture_copy("missing-running-reconcile")
+
       write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "memory",
+        tracker_kind: "sqlite",
+        tracker_database_path: database_path,
+        tracker_project_slug: "missing-project",
         workspace_root: test_root,
         tracker_active_states: ["Todo", "In Progress", "In Review"],
         tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
         poll_interval_ms: 30_000
       )
 
-      Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
-
       orchestrator_name = Module.concat(__MODULE__, :MissingRunningIssueOrchestrator)
       {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
       on_exit(fn ->
-        restore_app_env(:memory_tracker_issues, previous_memory_issues)
-
         if Process.alive?(pid) do
           Process.exit(pid, :normal)
         end
@@ -755,7 +667,6 @@ defmodule SymphonyElixir.CoreTest do
       refute Process.alive?(agent_pid)
       assert File.exists?(workspace)
     after
-      restore_app_env(:memory_tracker_issues, previous_memory_issues)
       File.rm_rf(test_root)
     end
   end
@@ -963,13 +874,16 @@ defmodule SymphonyElixir.CoreTest do
     issue_id = "retry-refreshed-issue"
 
     try do
+      database_path = sqlite_fixture_copy("retry-refresh")
+
       write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "memory",
+        tracker_kind: "sqlite",
+        tracker_database_path: database_path,
+        tracker_project_slug: "missing-project",
         workspace_root: test_root,
         hook_before_run: "exit 1"
       )
 
-      Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
       {:ok, task_supervisor} = Task.Supervisor.start_link()
 
       state = %Orchestrator.State{
@@ -1299,7 +1213,7 @@ defmodule SymphonyElixir.CoreTest do
   end
 
   test "fetch issues by states with empty state set is a no-op" do
-    assert {:ok, []} = Client.fetch_issues_by_states([])
+    assert {:ok, []} = SymphonyElixir.Tracker.fetch_issues_by_states([])
   end
 
   test "prompt builder renders issue and attempt values from workflow template" do
@@ -1478,43 +1392,6 @@ defmodule SymphonyElixir.CoreTest do
     assert_raise RuntimeError, ~r/workflow_unavailable:/, fn ->
       PromptBuilder.build_prompt(issue)
     end
-  end
-
-  test "in-repo WORKFLOW.md renders correctly" do
-    workflow_path = Workflow.workflow_file_path()
-    previous_linear_api_key = System.get_env("LINEAR_API_KEY")
-
-    on_exit(fn -> restore_env("LINEAR_API_KEY", previous_linear_api_key) end)
-
-    System.put_env("LINEAR_API_KEY", "test-linear-api-key")
-    Workflow.set_workflow_file_path(Path.expand("WORKFLOW.md", File.cwd!()))
-
-    issue = %Issue{
-      identifier: "MT-616",
-      title: "Use rich templates for WORKFLOW.md",
-      description: "Render with rich template variables",
-      state: "In Progress",
-      url: "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd",
-      labels: ["templating", "workflow"]
-    }
-
-    on_exit(fn -> Workflow.set_workflow_file_path(workflow_path) end)
-
-    prompt = PromptBuilder.build_prompt(issue, attempt: 2)
-
-    assert prompt =~ "You are working on a Linear ticket `MT-616`"
-    assert prompt =~ "Issue context:"
-    assert prompt =~ "Identifier: MT-616"
-    assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
-    assert prompt =~ "Current status: In Progress"
-    assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
-    assert prompt =~ "This is an unattended orchestration session."
-    assert prompt =~ "Only stop early for a true external blocker"
-    assert prompt =~ "Do not include \"next steps for user\""
-    assert prompt =~ "open and follow `.codex/skills/land/SKILL.md`"
-    assert prompt =~ "Do not call `gh pr merge` directly"
-    assert prompt =~ "Follow-up context:"
-    assert prompt =~ "follow-up attempt #2"
   end
 
   test "prompt builder adds continuation guidance for retries" do
@@ -2360,5 +2237,38 @@ defmodule SymphonyElixir.CoreTest do
     after
       File.rm_rf(test_root)
     end
+  end
+
+  defp sqlite_fixture_copy(name) do
+    path = Path.join(System.tmp_dir!(), "symphony-core-#{name}-#{System.unique_integer([:positive])}.sqlite3")
+    File.cp!(Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__), path)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm(path <> "-wal")
+      File.rm(path <> "-shm")
+    end)
+
+    path
+  end
+
+  defp sqlite_fixture_with_issue(%Issue{} = issue, project_slug) do
+    path = sqlite_fixture_copy("dispatch-#{issue.identifier}")
+    quote_sql = fn value -> "'" <> String.replace(to_string(value), "'", "''") <> "'" end
+
+    sql =
+      "DELETE FROM blockers WHERE task_id = " <> quote_sql.(@sqlite_seed_id) <> "; " <>
+        "UPDATE tasks SET project_slug = " <> quote_sql.(project_slug) <>
+        ", identifier = " <> quote_sql.(issue.identifier) <>
+        ", title = " <> quote_sql.(issue.title) <>
+        ", objective = " <> quote_sql.(issue.description || "") <>
+        ", state = " <> quote_sql.(issue.state) <>
+        ", branch = " <> quote_sql.("codex/" <> String.downcase(issue.identifier)) <>
+        " WHERE id = " <> quote_sql.(@sqlite_seed_id)
+
+    {:ok, connection} = Sqlite3.open(path, mode: :readwrite)
+    :ok = Sqlite3.execute(connection, sql)
+    :ok = Sqlite3.close(connection)
+    path
   end
 end

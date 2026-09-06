@@ -63,8 +63,9 @@ supports readonly open mode, prepared statements, bound parameters, row reads,
 busy timeouts, and authorizer enforcement without introducing an ORM, Ecto
 repository, shell command, or second migration system.
 
-Scheduler cutover, runtime configuration generation by pilot, SQLite writes,
-workpad/lifecycle mutation, and GitHub authority removal remain later steps.
+The Runtime production route is SQLite-only. Pilot remains the host-side
+configuration and lifecycle authority, while this adapter remains read-only;
+Runtime has no GitHub tracker or publication credential path.
 
 ## Native build and artifact boundary
 

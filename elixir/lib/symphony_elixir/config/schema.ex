@@ -8,9 +8,6 @@ defmodule SymphonyElixir.Config.Schema do
   alias SymphonyElixir.PathSafety
 
   @primary_key false
-  @linear_endpoint "https://api.linear.app/graphql"
-  @linear_active_states ["Todo", "In Progress"]
-  @linear_terminal_states ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
   @sqlite_active_states ["QUEUED"]
   @sqlite_terminal_states ["READY_FOR_HUMAN_MERGE"]
 
@@ -402,43 +399,18 @@ defmodule SymphonyElixir.Config.Schema do
   defp finalize_settings(settings) do
     provider = normalize_optional_map(settings.tracker.provider) || %{}
 
-    {api_key, assignee, provider, secret_environment_names} =
-      case settings.tracker.kind do
-        "linear" ->
-          linear_provider =
-            provider
-            |> Map.put_new("endpoint", settings.tracker.endpoint || @linear_endpoint)
-            |> Map.put_new("api_key", settings.tracker.api_key)
-            |> Map.put_new("project_slug", settings.tracker.project_slug)
-            |> Map.put_new("assignee", settings.tracker.assignee)
-
-          resolved_api_key =
-            resolve_secret_setting(linear_provider["api_key"], System.get_env("LINEAR_API_KEY"))
-
-          resolved_assignee =
-            resolve_secret_setting(linear_provider["assignee"], System.get_env("LINEAR_ASSIGNEE"))
-
-          {
-            resolved_api_key,
-            resolved_assignee,
-            linear_provider,
-            ["LINEAR_API_KEY" | env_reference_names([linear_provider["api_key"]])]
-          }
-
-        _ ->
-          {settings.tracker.api_key, settings.tracker.assignee, provider, []}
-      end
-
     {active_states, terminal_states} = resolved_tracker_states(settings.tracker)
 
     tracker = %{
       settings.tracker
       | endpoint: Map.get(provider, "endpoint", settings.tracker.endpoint),
-        api_key: api_key,
+        # Tracker credentials are not a Runtime concern. The sole production
+        # adapter is SQLite and opens the host projection read-only.
+        api_key: nil,
         project_slug: Map.get(provider, "project_slug", settings.tracker.project_slug),
-        assignee: assignee,
+        assignee: nil,
         provider: provider,
-        secret_environment_names: Enum.uniq(secret_environment_names),
+        secret_environment_names: [],
         active_states: active_states,
         terminal_states: terminal_states
     }
@@ -459,12 +431,6 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp resolved_tracker_states(tracker) do
     case tracker.kind do
-      kind when kind in ["linear", "memory"] ->
-        {
-          tracker.active_states || @linear_active_states,
-          tracker.terminal_states || @linear_terminal_states
-        }
-
       "sqlite" ->
         {
           tracker.active_states || @sqlite_active_states,
