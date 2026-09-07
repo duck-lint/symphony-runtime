@@ -352,9 +352,14 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp dispatch_permission_profile(policies, workspace, role, result_writable_root, target_writable_roots, role_run_id) do
-    profile_id = "symphony-role-" <> (role_run_id || Integer.to_string(System.unique_integer([:positive])))
+    profile_id =
+      case role_run_id do
+        nil -> "symphony-role-" <> Integer.to_string(System.unique_integer([:positive]))
+        value when is_binary(value) -> "symphony-role-" <> value
+        _ -> nil
+      end
 
-    if not Regex.match?(~r/^symphony-role-[A-Za-z0-9_-]{1,100}$/, profile_id) do
+    if not is_binary(profile_id) or not Regex.match?(~r/^symphony-role-[A-Za-z0-9_-]{1,100}$/, profile_id) do
       {:error, {:invalid_role_run_id, role_run_id}}
     else
       if not is_binary(result_writable_root) or Path.type(result_writable_root) != :absolute do
