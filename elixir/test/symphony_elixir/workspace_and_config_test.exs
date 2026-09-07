@@ -569,7 +569,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   test "orchestrator active states remain the scheduler gate after SQLite routing" do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "sqlite",
-      tracker_database_path: Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__),
+      tracker_database_path: Path.expand("../fixtures/pilot_control_plane_v2.sqlite3", __DIR__),
       tracker_project_slug: "alpha",
       tracker_active_states: ["PLANNED"],
       tracker_terminal_states: ["READY_FOR_HUMAN_MERGE"]

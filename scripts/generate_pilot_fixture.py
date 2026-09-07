@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 
-PILOT_COMMIT = "40fcef7e6711daedb8900427a4fdc31fa1322f58"
+PILOT_COMMIT = "e39ddd272dff4860b657e00066243d80e69b651b"
 BASE_TIME = "2026-09-01T12:00:00+00:00"
 BASE_SHA = "a" * 40
 
@@ -59,7 +59,6 @@ def add_task(database, task_id: str, project_slug: str, state: str, title: str):
         objective=f"Objective for {title}",
         base_ref="main",
         base_sha=BASE_SHA,
-        branch=f"codex/{project_slug}-{task_id[:8]}",
         state=state,
         created_at=BASE_TIME,
     )

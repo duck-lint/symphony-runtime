@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
   Read-only adapter for the host-owned `symphony-pilot` control database.
 
   Pilot owns the schema and all writes. This adapter opens one connection per
-  read with SQLite's readonly flag, validates the small v1 contract it
+  read with SQLite's readonly flag, validates the small v2 contract it
   consumes, and never exposes the connection to the agent or orchestrator.
   """
 
@@ -13,8 +13,11 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
   alias SymphonyElixir.Config
   alias SymphonyElixir.Tracker.Issue
 
-  @schema_version 1
-  @migration_identity "control-plane-v1"
+  @schema_version 2
+  @migration_identities [
+    [1, "control-plane-v1"],
+    [2, "control-plane-v2-storage-reservations"]
+  ]
   @busy_timeout_ms 5_000
   @project_slug_pattern ~r/^[a-z0-9][a-z0-9-]{0,63}$/
 
@@ -322,7 +325,7 @@ defmodule SymphonyElixir.Tracker.SQLite.Adapter do
 
   defp validate_version(version), do: {:error, {:sqlite_incompatible_schema_version, version}}
 
-  defp validate_migration_identity([[@schema_version, @migration_identity]]), do: :ok
+  defp validate_migration_identity(@migration_identities), do: :ok
 
   defp validate_migration_identity(rows), do: {:error, {:sqlite_invalid_migration_identity, rows}}
 

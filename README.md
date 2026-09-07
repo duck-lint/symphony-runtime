@@ -82,7 +82,7 @@ copied into a generated project deployment.
 For a local production proof after `make artifact`, run:
 
 ```sh
-bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_plane_v1.sqlite3
+bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_plane_v2.sqlite3
 ```
 
 See [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the bounded provenance and

@@ -2241,7 +2241,7 @@ defmodule SymphonyElixir.CoreTest do
 
   defp sqlite_fixture_copy(name) do
     path = Path.join(System.tmp_dir!(), "symphony-core-#{name}-#{System.unique_integer([:positive])}.sqlite3")
-    File.cp!(Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__), path)
+    File.cp!(Path.expand("../fixtures/pilot_control_plane_v2.sqlite3", __DIR__), path)
 
     on_exit(fn ->
       File.rm(path)

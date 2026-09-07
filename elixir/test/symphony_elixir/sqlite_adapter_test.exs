@@ -63,7 +63,7 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
     assert alpha_issue.title == "Alpha queued"
     assert alpha_issue.description == "Objective for Alpha queued"
     assert alpha_issue.state == "QUEUED"
-    assert alpha_issue.branch_name == "codex/alpha-11111111"
+    assert alpha_issue.branch_name == "codex/t-000001-111111111111"
     assert alpha_issue.native_ref == nil
     assert alpha_issue.assignee_id == nil
     assert alpha_issue.priority == nil
@@ -246,8 +246,12 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
   test "schema version, migration identity, partial schema, and required timestamps fail closed" do
     for {name, mutation, expected} <- [
           {"older", "PRAGMA user_version = 0", {:sqlite_incompatible_schema_version, 0}},
-          {"newer", "PRAGMA user_version = 2", {:sqlite_unsupported_schema_version, 2}},
-          {"identity", "UPDATE schema_migrations SET identity = 'wrong'", {:sqlite_invalid_migration_identity, [[1, "wrong"]]}},
+          {"newer", "PRAGMA user_version = 3", {:sqlite_unsupported_schema_version, 3}},
+          {
+            "identity",
+            "UPDATE schema_migrations SET identity = 'wrong' WHERE version = 1",
+            {:sqlite_invalid_migration_identity, [[1, "wrong"], [2, "control-plane-v2-storage-reservations"]]}
+          },
           {
             "partial",
             "DROP TABLE blockers",
@@ -283,8 +287,12 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
     owner = self()
 
     for {name, mutation, expected} <- [
-          {"newer", "PRAGMA user_version = 2", {:sqlite_unsupported_schema_version, 2}},
-          {"identity", "UPDATE schema_migrations SET identity = 'wrong'", {:sqlite_invalid_migration_identity, [[1, "wrong"]]}},
+          {"newer", "PRAGMA user_version = 3", {:sqlite_unsupported_schema_version, 3}},
+          {
+            "identity",
+            "UPDATE schema_migrations SET identity = 'wrong' WHERE version = 1",
+            {:sqlite_invalid_migration_identity, [[1, "wrong"], [2, "control-plane-v2-storage-reservations"]]}
+          },
           {"partial", "DROP TABLE blockers", {:sqlite_incompatible_schema, {:missing_columns, "blockers", ["task_id", "kind", "status"]}}}
         ] do
       path = copy_fixture("close-#{name}")
@@ -373,7 +381,7 @@ defmodule SymphonyElixir.SQLiteAdapterTest do
   end
 
   defp fixture_path do
-    Path.expand("../fixtures/pilot_control_plane_v1.sqlite3", __DIR__)
+    Path.expand("../fixtures/pilot_control_plane_v2.sqlite3", __DIR__)
   end
 
   defp copy_fixture(name) do

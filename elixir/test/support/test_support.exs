@@ -94,7 +94,7 @@ defmodule SymphonyElixir.TestSupport do
           tracker_endpoint: nil,
           tracker_api_token: nil,
           tracker_project_slug: "alpha",
-          tracker_database_path: Path.expand(Path.join(__DIR__, "../fixtures/pilot_control_plane_v1.sqlite3")),
+          tracker_database_path: Path.expand(Path.join(__DIR__, "../fixtures/pilot_control_plane_v2.sqlite3")),
           tracker_assignee: nil,
           tracker_required_labels: [],
           tracker_active_states: ["QUEUED"],
