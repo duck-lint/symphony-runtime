@@ -21,7 +21,8 @@ defmodule SymphonyElixir.Codex.AppServer do
           thread_id: String.t(),
           workspace: Path.t(),
           worker_host: String.t() | nil,
-          dynamic_tool_binding: map()
+          dynamic_tool_binding: map(),
+          role: String.t()
         }
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -44,9 +45,10 @@ defmodule SymphonyElixir.Codex.AppServer do
          {:ok, port} <- start_port(expanded_workspace, worker_host, dynamic_tool_binding) do
       metadata = port_metadata(port, worker_host)
 
-      with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
+      with {:ok, configured_policies} <- session_policies(expanded_workspace, worker_host),
+           {:ok, session_policies} <- dispatch_policies(configured_policies, expanded_workspace, opts),
            {:ok, thread_id} <-
-             do_start_session(port, expanded_workspace, session_policies, dynamic_tool_binding) do
+             do_start_session(port, expanded_workspace, session_policies, dynamic_tool_binding, opts) do
         {:ok,
          %{
            port: port,
@@ -58,7 +60,8 @@ defmodule SymphonyElixir.Codex.AppServer do
            thread_id: thread_id,
            workspace: expanded_workspace,
            worker_host: worker_host,
-           dynamic_tool_binding: dynamic_tool_binding
+           dynamic_tool_binding: dynamic_tool_binding,
+           role: Keyword.get(opts, :role, "ARCHITECT")
          }}
       else
         {:error, reason} ->
@@ -304,9 +307,45 @@ defmodule SymphonyElixir.Codex.AppServer do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
-  defp do_start_session(port, workspace, session_policies, dynamic_tool_binding) do
+  defp dispatch_policies(policies, _workspace, opts) do
+    case Keyword.fetch(opts, :role) do
+      :error ->
+        # Direct AppServer callers retain the configured low-level contract.
+        # AgentRunner always supplies a host-selected role and therefore takes
+        # the fail-closed branch below.
+        {:ok, policies}
+
+      {:ok, role} ->
+        dispatch_policies_for_role(policies, role, Keyword.get(opts, :writable_roots, []))
+    end
+  end
+
+  defp dispatch_policies_for_role(policies, role, writable_roots) do
+    if role not in ["ARCHITECT", "PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] do
+      {:error, {:invalid_role, role}}
+    else
+      if not is_list(writable_roots) or Enum.any?(writable_roots, &(not is_binary(&1) or Path.type(&1) != :absolute)) do
+        {:error, {:invalid_writable_roots, writable_roots}}
+      else
+        if writable_roots == [] do
+          {:ok, %{policies | thread_sandbox: "read-only", turn_sandbox_policy: %{"type" => "readOnly"}}}
+        else
+          policy = %{
+            "type" => "workspaceWrite",
+            "writableRoots" => writable_roots,
+            "readOnlyAccess" => %{"type" => "fullAccess"},
+            "networkAccess" => false
+          }
+
+          {:ok, %{policies | thread_sandbox: "workspace-write", turn_sandbox_policy: policy}}
+        end
+      end
+    end
+  end
+
+  defp do_start_session(port, workspace, session_policies, dynamic_tool_binding, opts) do
     case send_initialize(port) do
-      :ok -> start_thread(port, workspace, session_policies, dynamic_tool_binding)
+      :ok -> start_thread(port, workspace, session_policies, dynamic_tool_binding, opts)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -315,18 +354,27 @@ defmodule SymphonyElixir.Codex.AppServer do
          port,
          workspace,
          %{approval_policy: approval_policy, thread_sandbox: thread_sandbox},
-         dynamic_tool_binding
+         dynamic_tool_binding,
+         opts
        ) do
-    send_message(port, %{
+    params = %{
       "method" => "thread/start",
       "id" => @thread_start_id,
       "params" => %{
         "approvalPolicy" => approval_policy,
         "sandbox" => thread_sandbox,
         "cwd" => workspace,
-        "dynamicTools" => dynamic_tool_binding.tool_specs
       }
-    })
+    }
+
+    params = put_in(params, ["params", "dynamicTools"], dynamic_tool_binding.tool_specs)
+    params =
+      case Keyword.get(opts, :developer_instructions) do
+        value when is_binary(value) and value != "" -> put_in(params, ["params", "developerInstructions"], value)
+        _ -> params
+      end
+
+    send_message(port, params)
 
     case await_response(port, @thread_start_id) do
       {:ok, %{"thread" => thread_payload}} ->

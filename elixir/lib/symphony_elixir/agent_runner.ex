@@ -55,12 +55,6 @@ defmodule SymphonyElixir.AgentRunner do
     end
   end
 
-  defp codex_message_handler(recipient, issue) do
-    fn message ->
-      send_codex_update(recipient, issue, message)
-    end
-  end
-
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)
        when is_binary(issue_id) and is_pid(recipient) do
     send(recipient, {:codex_worker_update, issue_id, message})
@@ -88,25 +82,32 @@ defmodule SymphonyElixir.AgentRunner do
   defp run_codex_turns(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.settings!().agent.max_turns)
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issues_by_ids/1)
+    dispatch = read_dispatch!(workspace)
 
-    with {:ok, session} <- AppServer.start_session(workspace, worker_host: worker_host) do
+    with {:ok, session} <-
+           AppServer.start_session(
+             workspace,
+             worker_host: worker_host,
+             role: dispatch.role,
+             writable_roots: dispatch.writable_roots
+           ) do
       try do
-        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, 1, max_turns)
+        do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, dispatch, 1, max_turns)
       after
         AppServer.stop_session(session)
       end
     end
   end
 
-  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, turn_number, max_turns) do
-    prompt = build_turn_prompt(issue, opts, turn_number, max_turns)
+  defp do_run_codex_turns(app_session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, dispatch, turn_number, max_turns) do
+    prompt = build_turn_prompt(issue, opts |> Keyword.put(:execution, dispatch_prompt_context(dispatch)), turn_number, max_turns)
 
     with {:ok, turn_session} <-
            AppServer.run_turn(
              app_session,
              prompt,
              issue,
-             on_message: codex_message_handler(codex_update_recipient, issue)
+             on_message: codex_message_handler(codex_update_recipient, issue, dispatch)
            ) do
       Logger.info("Completed agent run for #{issue_context(issue)} session_id=#{turn_session[:session_id]} workspace=#{workspace} turn=#{turn_number}/#{max_turns}")
 
@@ -121,6 +122,7 @@ defmodule SymphonyElixir.AgentRunner do
             codex_update_recipient,
             opts,
             issue_state_fetcher,
+            dispatch,
             turn_number + 1,
             max_turns
           )
@@ -212,5 +214,91 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp issue_context(%Issue{id: issue_id, identifier: identifier}) do
     "issue_id=#{issue_id} issue_identifier=#{identifier}"
+  end
+
+  defp read_dispatch!(workspace) do
+    marker_path = Path.join(workspace, ".git/symphony-preparation.json")
+
+    with {:ok, raw} <- File.read(marker_path),
+         {:ok, marker} when is_map(marker) <- Jason.decode(raw),
+         role when is_binary(role) <- Map.get(marker, "dispatch_role"),
+         role_run_id when is_binary(role_run_id) <- Map.get(marker, "role_run_id"),
+         namespace when is_binary(namespace) <- Map.get(marker, "lifecycle_namespace") do
+      writable_roots =
+        marker
+        |> Map.get("writable_roots", nil)
+        |> case do
+          roots when is_list(roots) -> roots
+          _ ->
+            case File.read(Path.join(namespace, "inbox/lifecycle.json")) do
+              {:ok, packet_raw} ->
+                with {:ok, packet} when is_map(packet) <- Jason.decode(packet_raw),
+                     %{"writable_roots" => roots} when is_list(roots) <- Map.get(packet, "dispatch", %{}) do
+                  roots
+                else
+                  _ -> []
+                end
+
+              _ -> []
+            end
+        end
+
+      if writable_roots == [] do
+        raise RuntimeError, "role dispatch has no writable outbox root"
+      end
+
+      %{role: role, role_run_id: role_run_id, namespace: namespace, writable_roots: writable_roots}
+    else
+      _ -> raise RuntimeError, "role dispatch marker is missing or malformed"
+    end
+  end
+
+  defp dispatch_prompt_context(dispatch) do
+    %{role: dispatch.role, role_run_id: dispatch.role_run_id,
+      input_path: Path.join(dispatch.namespace, "inbox/lifecycle.json"),
+      result_path: Path.join(dispatch.namespace, "outbox/result.json")}
+  end
+
+  defp codex_message_handler(recipient, issue, dispatch) do
+    fn message ->
+      persist_execution_receipt(dispatch, message)
+      send_codex_update(recipient, issue, message)
+    end
+  end
+
+  defp persist_execution_receipt(dispatch, %{event: event} = message)
+       when event in [:session_started, :turn_completed, :turn_failed, :turn_cancelled, :turn_ended_with_error] do
+    receipt_path = Path.join(dispatch.namespace, "outbox/execution.json")
+    existing =
+      case File.read(receipt_path) do
+        {:ok, raw} ->
+          case Jason.decode(raw) do
+            {:ok, value} when is_map(value) -> value
+            _ -> %{}
+          end
+
+        _ -> %{}
+      end
+
+    status = if event == :session_started, do: "started", else: if(event == :turn_completed, do: "finished", else: "failed")
+    receipt =
+      existing
+      |> Map.merge(%{"schema" => "symphony-runtime-execution/v1", "role" => dispatch.role, "role_run_id" => dispatch.role_run_id, "status" => status})
+      |> Map.put_new("started_at", DateTime.utc_now() |> DateTime.to_iso8601())
+      |> Map.put("finished_at", if(status == "started", do: Map.get(existing, "finished_at"), else: DateTime.utc_now() |> DateTime.to_iso8601()))
+      |> maybe_put_message_identity(message)
+
+    File.write!(receipt_path, Jason.encode!(receipt))
+  end
+
+  defp persist_execution_receipt(_dispatch, _message), do: :ok
+
+  defp maybe_put_message_identity(receipt, message) do
+    Enum.reduce([:session_id, :thread_id, :turn_id], receipt, fn key, acc ->
+      case Map.get(message, key) do
+        nil -> acc
+        value -> Map.put(acc, Atom.to_string(key), value)
+      end
+    end)
   end
 end

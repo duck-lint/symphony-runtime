@@ -14,16 +14,41 @@ defmodule SymphonyElixir.PromptBuilder do
       |> prompt_template!()
       |> parse_template!()
 
-    template
-    |> Solid.render!(
+    rendered =
+      template
+      |> Solid.render!(
       %{
         "attempt" => Keyword.get(opts, :attempt),
-        "issue" => issue |> Map.from_struct() |> to_solid_map()
+        "issue" => issue |> Map.from_struct() |> to_solid_map(),
+        "execution" => opts |> Keyword.get(:execution, %{}) |> to_solid_value()
       },
       @render_opts
     )
     |> IO.iodata_to_binary()
+
+    rendered <> dispatch_guidance(Keyword.get(opts, :execution))
   end
+
+  defp dispatch_guidance(%{role: role, input_path: input_path, result_path: result_path}) do
+    """
+
+    ## Runtime dispatch contract
+
+    You are executing exactly one fresh #{role} role. Read the host-owned
+    input packet at #{input_path}. Write exactly one JSON object to
+    #{result_path} before ending the turn. Copy task identity, expected state,
+    expected workpad version, expected starting HEAD, and workpad body from
+    that input packet. Set `role_run_id` to the dispatched identity and set
+    `role` to #{role}.
+
+    For ARCHITECT, set `packet` to null and author only Architect findings.
+    For every specialized role, set `packet` to the packet authored by this
+    execution and set top-level `findings` to an empty list. Never include
+    `role_results`; another actor cannot author your packet.
+    """
+  end
+
+  defp dispatch_guidance(_), do: ""
 
   defp prompt_template!({:ok, %{prompt_template: prompt}}), do: default_prompt(prompt)
 
