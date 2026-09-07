@@ -1,5 +1,13 @@
 # symphony-runtime
 
+> **SUPERVISED LOCAL MVP: PROVEN**
+>
+> Runtime `bca0d7027c49ef9bc62ee07de0bf669b8d3cb3d6` has been exercised
+> against Pilot `a88b075fb0ab60af369b377992c98706affd3b5e` with the current
+> Pilot v2 SQLite database. Codex App Server startup, ARCHITECT orchestration,
+> role execution, and clean stop were proven under explicit
+> `SYMPHONY_SUPERVISED_LOCAL=1` supervision.
+
 This repository contains the Symphony implementation that `symphony-pilot`
 builds, identifies, pins, and runs for the local control plane. The runtime
 source here is owned by this project.
@@ -87,3 +95,18 @@ bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_pl
 
 See [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the bounded provenance and
 pilot-integration evidence recorded during the ownership cutover.
+
+## Current integration boundary
+
+Runtime is project-independent and lifecycle-read-only. It reads the
+project-scoped Pilot SQLite projection and routes eligible work; Pilot remains
+the sole lifecycle writer and reconciliation authority. The current contract
+is Pilot schema v2 with migration lineage `control-plane-v1` followed by
+`control-plane-v2-storage-reservations`.
+
+The supervised-local launch uses the operator's existing authenticated Codex
+environment and the six project-independent role policies. This is a live
+local-development path, not proof of unattended credential isolation,
+quota/EDQUOT enforcement, pin-to-exec TOCTOU closure, publication, PR
+creation, or merge. The Runtime dashboard at `http://127.0.0.1:4041` is
+observability only and is not a second lifecycle authority.

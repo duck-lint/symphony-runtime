@@ -1,5 +1,14 @@
 # Runtime ownership and Step 1 baseline
 
+## Current status
+
+The accepted Runtime ref is `bca0d7027c49ef9bc62ee07de0bf669b8d3cb3d6`.
+Runtime is live in the supervised-local MVP: it reads Pilot SQLite v2
+project-scoped and read-only, starts Codex App Server under explicit operator
+supervision, and exposes execution observability without owning lifecycle
+mutation. This does not close unattended credential, storage, or publication
+hardening.
+
 ## Authority
 
 `symphony-runtime` is the owned implementation of the Symphony scheduler and
@@ -80,7 +89,8 @@ build command and the explicit `SYMPHONY_BIN` path supplied to pinning.
 
 ## Deferred seams
 
-SQLite task tracking remains the host-owned route. Local browser control,
-Runtime pin-to-exec, SSH worker topology, and the Codex App Server credential
-boundary remain outside this cleanup; the credential boundary is required but
-unresolved for activation.
+SQLite task tracking remains the host-owned route. The current loopback Pilot
+UI and Runtime dashboard are observability surfaces; neither is a second
+authority. Runtime pin-to-exec, SSH worker topology, and the Codex App Server
+credential boundary remain unattended/publication hardening seams. Their open
+status does not contradict the proven supervised-local integration.
