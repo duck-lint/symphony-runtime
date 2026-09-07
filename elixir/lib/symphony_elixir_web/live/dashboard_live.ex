@@ -132,7 +132,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
           </div>
 
           <%= if @payload.running == [] do %>
-            <p class="empty-state">No active sessions.</p>
+            <p class="empty-state">
+              No active Runtime sessions. Durable task and role history is retained by the Pilot control plane.
+            </p>
           <% else %>
             <div class="table-wrap">
               <table class="data-table data-table-running">
