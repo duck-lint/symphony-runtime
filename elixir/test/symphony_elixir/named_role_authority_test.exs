@@ -11,10 +11,14 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
     try do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-ROLE-AUTHORITY")
+      authorized_root = Path.join(workspace, "src")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
+      result_root = Path.join(test_root, "lifecycle-outbox")
 
       File.mkdir_p!(workspace)
+      File.mkdir_p!(authorized_root)
+      File.mkdir_p!(result_root)
       File.write!(codex_binary, """
       #!/bin/sh
       trace_file="$SYMP_TEST_NAMED_ROLE_TRACE"
@@ -73,12 +77,13 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
             "IMPLEMENTER"
           ] do
         File.rm(trace_file)
-        writable_roots = if role == "IMPLEMENTER", do: [workspace], else: []
+        target_writable_roots = if role == "IMPLEMENTER", do: [authorized_root], else: []
 
         assert {:ok, _result} =
                  AppServer.run(workspace, "Run #{role}", issue,
                    role: role,
-                   writable_roots: writable_roots
+                   result_writable_root: result_root,
+                   target_writable_roots: target_writable_roots
                  )
 
         payloads =
@@ -95,15 +100,34 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
           assert thread_start["params"]["sandbox"] == "workspace-write"
           assert turn_start["params"]["sandboxPolicy"] == %{
                    "type" => "workspaceWrite",
-                   "writableRoots" => [workspace],
+                   "writableRoots" => [result_root, authorized_root],
                    "readOnlyAccess" => %{"type" => "fullAccess"},
                    "networkAccess" => false
                  }
         else
-          assert thread_start["params"]["sandbox"] == "read-only"
-          assert turn_start["params"]["sandboxPolicy"] == %{"type" => "readOnly"}
+          assert thread_start["params"]["sandbox"] == "workspace-write"
+          assert turn_start["params"]["sandboxPolicy"] == %{
+                   "type" => "workspaceWrite",
+                   "writableRoots" => [result_root],
+                   "readOnlyAccess" => %{"type" => "fullAccess"},
+                   "networkAccess" => false
+                 }
         end
       end
+
+      assert {:error, {:target_write_not_allowed_for_role, "REVIEWER"}} =
+               AppServer.start_session(workspace,
+                 role: "REVIEWER",
+                 result_writable_root: result_root,
+                 target_writable_roots: [workspace]
+               )
+
+      assert {:error, :target_writable_root_outside_authorized_workspace} =
+               AppServer.start_session(workspace,
+                 role: "IMPLEMENTER",
+                 result_writable_root: result_root,
+                 target_writable_roots: [workspace]
+               )
     after
       File.rm_rf(test_root)
     end

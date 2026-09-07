@@ -42,9 +42,12 @@ defmodule SymphonyElixir.PromptBuilder do
     `role` to #{role}.
 
     For ARCHITECT, set `packet` to null and author only Architect findings.
+    Set `authorized_write_paths` to an empty list except for
+    `planning_complete`, where it must contain only explicit repository-relative
+    directories for the next Implementer; never use absolute paths or `..`.
     For every specialized role, set `packet` to the packet authored by this
-    execution and set top-level `findings` to an empty list. Never include
-    `role_results`; another actor cannot author your packet.
+    execution, set top-level `findings` and `authorized_write_paths` to empty
+    lists. Never include `role_results`; another actor cannot author your packet.
     """
   end
 

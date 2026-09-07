@@ -307,7 +307,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     Config.codex_runtime_settings(workspace, remote: true)
   end
 
-  defp dispatch_policies(policies, _workspace, opts) do
+  defp dispatch_policies(policies, expanded_workspace, opts) do
     case Keyword.fetch(opts, :role) do
       :error ->
         # Direct AppServer callers retain the configured low-level contract.
@@ -316,31 +316,64 @@ defmodule SymphonyElixir.Codex.AppServer do
         {:ok, policies}
 
       {:ok, role} ->
-        dispatch_policies_for_role(policies, role, Keyword.get(opts, :writable_roots, []))
+        dispatch_policies_for_role(
+          policies,
+          expanded_workspace,
+          role,
+          Keyword.get(opts, :result_writable_root),
+          Keyword.get(opts, :target_writable_roots)
+        )
     end
   end
 
-  defp dispatch_policies_for_role(policies, role, writable_roots) do
+  defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, target_writable_roots) do
     if role not in ["ARCHITECT", "PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] do
       {:error, {:invalid_role, role}}
     else
-      if not is_list(writable_roots) or Enum.any?(writable_roots, &(not is_binary(&1) or Path.type(&1) != :absolute)) do
-        {:error, {:invalid_writable_roots, writable_roots}}
+      if not is_binary(result_writable_root) or Path.type(result_writable_root) != :absolute do
+        {:error, {:invalid_result_writable_root, result_writable_root}}
       else
-        if writable_roots == [] do
-          {:ok, %{policies | thread_sandbox: "read-only", turn_sandbox_policy: %{"type" => "readOnly"}}}
+        if String.starts_with?(result_writable_root <> "/", workspace <> "/") or result_writable_root == workspace do
+          {:error, {:result_writable_root_inside_workspace, result_writable_root}}
         else
-          policy = %{
-            "type" => "workspaceWrite",
-            "writableRoots" => writable_roots,
-            "readOnlyAccess" => %{"type" => "fullAccess"},
-            "networkAccess" => false
-          }
+          if not is_list(target_writable_roots) or Enum.any?(target_writable_roots, &(not is_binary(&1) or Path.type(&1) != :absolute)) do
+            {:error, {:invalid_target_writable_roots, target_writable_roots}}
+          else
+            expanded_target_roots = Enum.map(target_writable_roots, &Path.expand/1)
 
-          {:ok, %{policies | thread_sandbox: "workspace-write", turn_sandbox_policy: policy}}
+            if Enum.any?(expanded_target_roots, fn root ->
+                 relative_path = Path.relative_to(root, workspace)
+                 root == workspace or not valid_workspace_relative_path?(relative_path)
+               end) do
+              {:error, :target_writable_root_outside_authorized_workspace}
+            else
+              if role != "IMPLEMENTER" and target_writable_roots != [] do
+                {:error, {:target_write_not_allowed_for_role, role}}
+              else
+                if role == "IMPLEMENTER" and target_writable_roots == [] do
+                  {:error, :implementer_requires_authorized_target_root}
+                else
+                  writable_roots = Enum.uniq([result_writable_root | expanded_target_roots])
+                  policy = %{
+                    "type" => "workspaceWrite",
+                    "writableRoots" => writable_roots,
+                    "readOnlyAccess" => %{"type" => "fullAccess"},
+                    "networkAccess" => false
+                  }
+
+                  {:ok, %{policies | thread_sandbox: "workspace-write", turn_sandbox_policy: policy}}
+                end
+              end
+            end
+          end
         end
       end
     end
+  end
+
+  defp valid_workspace_relative_path?(relative_path) do
+    relative_path != "" and relative_path != "." and
+      relative_path != ".." and not String.starts_with?(relative_path, "../")
   end
 
   defp do_start_session(port, workspace, session_policies, dynamic_tool_binding, opts) do

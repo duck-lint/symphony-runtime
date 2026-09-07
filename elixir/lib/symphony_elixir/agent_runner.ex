@@ -89,7 +89,8 @@ defmodule SymphonyElixir.AgentRunner do
              workspace,
              worker_host: worker_host,
              role: dispatch.role,
-             writable_roots: dispatch.writable_roots
+             result_writable_root: dispatch.result_writable_root,
+             target_writable_roots: dispatch.target_writable_roots
            ) do
       try do
         do_run_codex_turns(session, workspace, issue, codex_update_recipient, opts, issue_state_fetcher, dispatch, 1, max_turns)
@@ -224,30 +225,14 @@ defmodule SymphonyElixir.AgentRunner do
          role when is_binary(role) <- Map.get(marker, "dispatch_role"),
          role_run_id when is_binary(role_run_id) <- Map.get(marker, "role_run_id"),
          namespace when is_binary(namespace) <- Map.get(marker, "lifecycle_namespace") do
-      writable_roots =
-        marker
-        |> Map.get("writable_roots", nil)
-        |> case do
-          roots when is_list(roots) -> roots
-          _ ->
-            case File.read(Path.join(namespace, "inbox/lifecycle.json")) do
-              {:ok, packet_raw} ->
-                with {:ok, packet} when is_map(packet) <- Jason.decode(packet_raw),
-                     %{"writable_roots" => roots} when is_list(roots) <- Map.get(packet, "dispatch", %{}) do
-                  roots
-                else
-                  _ -> []
-                end
-
-              _ -> []
-            end
-        end
-
-      if writable_roots == [] do
-        raise RuntimeError, "role dispatch has no writable outbox root"
+      with result_writable_root when is_binary(result_writable_root) <- Map.get(marker, "result_writable_root"),
+           target_writable_roots when is_list(target_writable_roots) <- Map.get(marker, "target_writable_roots") do
+        %{role: role, role_run_id: role_run_id, namespace: namespace,
+          result_writable_root: result_writable_root,
+          target_writable_roots: target_writable_roots}
+      else
+        _ -> raise RuntimeError, "role dispatch capability data is missing or malformed"
       end
-
-      %{role: role, role_run_id: role_run_id, namespace: namespace, writable_roots: writable_roots}
     else
       _ -> raise RuntimeError, "role dispatch marker is missing or malformed"
     end
@@ -268,7 +253,7 @@ defmodule SymphonyElixir.AgentRunner do
 
   defp persist_execution_receipt(dispatch, %{event: event} = message)
        when event in [:session_started, :turn_completed, :turn_failed, :turn_cancelled, :turn_ended_with_error] do
-    receipt_path = Path.join(dispatch.namespace, "outbox/execution.json")
+    receipt_path = Path.join(dispatch.namespace, "host/execution.json")
     existing =
       case File.read(receipt_path) do
         {:ok, raw} ->
