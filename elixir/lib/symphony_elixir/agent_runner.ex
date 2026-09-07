@@ -89,6 +89,7 @@ defmodule SymphonyElixir.AgentRunner do
              workspace,
              worker_host: worker_host,
              role: dispatch.role,
+             role_run_id: dispatch.role_run_id,
              result_writable_root: dispatch.result_writable_root,
              target_writable_roots: dispatch.target_writable_roots
            ) do

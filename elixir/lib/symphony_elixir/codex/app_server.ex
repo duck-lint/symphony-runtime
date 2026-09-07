@@ -16,8 +16,10 @@ defmodule SymphonyElixir.Codex.AppServer do
           metadata: map(),
           approval_policy: String.t() | map(),
           auto_approve_requests: boolean(),
-          thread_sandbox: String.t(),
-          turn_sandbox_policy: map(),
+          thread_sandbox: String.t() | nil,
+          turn_sandbox_policy: map() | nil,
+          permissions_profile: String.t() | nil,
+          config_overrides: map() | nil,
           thread_id: String.t(),
           workspace: Path.t(),
           worker_host: String.t() | nil,
@@ -57,6 +59,8 @@ defmodule SymphonyElixir.Codex.AppServer do
            auto_approve_requests: session_policies.approval_policy == "never",
            thread_sandbox: session_policies.thread_sandbox,
            turn_sandbox_policy: session_policies.turn_sandbox_policy,
+           permissions_profile: session_policies.permissions_profile,
+           config_overrides: session_policies.config_overrides,
            thread_id: thread_id,
            workspace: expanded_workspace,
            worker_host: worker_host,
@@ -79,6 +83,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           approval_policy: approval_policy,
           auto_approve_requests: auto_approve_requests,
           turn_sandbox_policy: turn_sandbox_policy,
+          permissions_profile: permissions_profile,
           thread_id: thread_id,
           workspace: workspace,
           dynamic_tool_binding: dynamic_tool_binding
@@ -321,14 +326,36 @@ defmodule SymphonyElixir.Codex.AppServer do
           expanded_workspace,
           role,
           Keyword.get(opts, :result_writable_root),
-          Keyword.get(opts, :target_writable_roots)
+          Keyword.get(opts, :target_writable_roots),
+          Keyword.get(opts, :role_run_id)
         )
     end
   end
 
-  defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, target_writable_roots) do
+  defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, target_writable_roots, role_run_id) do
     if role not in ["ARCHITECT", "PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] do
       {:error, {:invalid_role, role}}
+    else
+      if match?({:win32, _}, :os.type()) do
+        {:error, :split_filesystem_permissions_unsupported_on_windows}
+      else
+        dispatch_permission_profile(
+          policies,
+          workspace,
+          role,
+          result_writable_root,
+          target_writable_roots,
+          role_run_id
+        )
+      end
+    end
+  end
+
+  defp dispatch_permission_profile(policies, workspace, role, result_writable_root, target_writable_roots, role_run_id) do
+    profile_id = "symphony-role-" <> (role_run_id || Integer.to_string(System.unique_integer([:positive])))
+
+    if not Regex.match?(~r/^symphony-role-[A-Za-z0-9_-]{1,100}$/, profile_id) do
+      {:error, {:invalid_role_run_id, role_run_id}}
     else
       if not is_binary(result_writable_root) or Path.type(result_writable_root) != :absolute do
         {:error, {:invalid_result_writable_root, result_writable_root}}
@@ -353,15 +380,24 @@ defmodule SymphonyElixir.Codex.AppServer do
                 if role == "IMPLEMENTER" and target_writable_roots == [] do
                   {:error, :implementer_requires_authorized_target_root}
                 else
-                  writable_roots = Enum.uniq([result_writable_root | expanded_target_roots])
-                  policy = %{
-                    "type" => "workspaceWrite",
-                    "writableRoots" => writable_roots,
-                    "readOnlyAccess" => %{"type" => "fullAccess"},
-                    "networkAccess" => false
+                  filesystem =
+                    expanded_target_roots
+                    |> Enum.reduce(%{Path.expand(result_writable_root) => "write"}, fn path, entries ->
+                      Map.put(entries, path, "write")
+                    end)
+
+                  permission_profile = %{
+                    "extends" => ":read-only",
+                    "filesystem" => filesystem,
+                    "network" => %{"enabled" => false}
                   }
 
-                  {:ok, %{policies | thread_sandbox: "workspace-write", turn_sandbox_policy: policy}}
+                  {:ok,
+                   %{policies |
+                     thread_sandbox: nil,
+                     turn_sandbox_policy: nil,
+                     permissions_profile: profile_id,
+                     config_overrides: %{"permissions" => %{profile_id => permission_profile}}}}
                 end
               end
             end
@@ -386,7 +422,8 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp start_thread(
          port,
          workspace,
-         %{approval_policy: approval_policy, thread_sandbox: thread_sandbox},
+         %{approval_policy: approval_policy, thread_sandbox: thread_sandbox,
+           permissions_profile: permissions_profile, config_overrides: config_overrides},
          dynamic_tool_binding,
          opts
        ) do
@@ -395,10 +432,23 @@ defmodule SymphonyElixir.Codex.AppServer do
       "id" => @thread_start_id,
       "params" => %{
         "approvalPolicy" => approval_policy,
-        "sandbox" => thread_sandbox,
         "cwd" => workspace,
       }
     }
+
+    params =
+      if is_binary(permissions_profile) do
+        put_in(params, ["params", "permissions"], permissions_profile)
+      else
+        put_in(params, ["params", "sandbox"], thread_sandbox)
+      end
+
+    params =
+      if is_map(config_overrides) do
+        put_in(params, ["params", "config"], config_overrides)
+      else
+        params
+      end
 
     params = put_in(params, ["params", "dynamicTools"], dynamic_tool_binding.tool_specs)
     params =
@@ -422,7 +472,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
-    send_message(port, %{
+    params = %{
       "method" => "turn/start",
       "id" => @turn_start_id,
       "params" => %{
@@ -435,10 +485,18 @@ defmodule SymphonyElixir.Codex.AppServer do
         ],
         "cwd" => workspace,
         "title" => "#{issue.identifier}: #{issue.title}",
-        "approvalPolicy" => approval_policy,
-        "sandboxPolicy" => turn_sandbox_policy
+        "approvalPolicy" => approval_policy
       }
-    })
+    }
+
+    params =
+      if is_map(turn_sandbox_policy) do
+        put_in(params, ["params", "sandboxPolicy"], turn_sandbox_policy)
+      else
+        params
+      end
+
+    send_message(port, params)
 
     case await_response(port, @turn_start_id) do
       {:ok, %{"turn" => %{"id" => turn_id}}} -> {:ok, turn_id}

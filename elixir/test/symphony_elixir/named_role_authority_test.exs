@@ -12,12 +12,14 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
       workspace_root = Path.join(test_root, "workspaces")
       workspace = Path.join(workspace_root, "MT-ROLE-AUTHORITY")
       authorized_root = Path.join(workspace, "src")
+      authorized_file = Path.join(workspace, "src", "parser.ex")
       codex_binary = Path.join(test_root, "fake-codex")
       trace_file = Path.join(test_root, "codex.trace")
       result_root = Path.join(test_root, "lifecycle-outbox")
 
       File.mkdir_p!(workspace)
       File.mkdir_p!(authorized_root)
+      File.write!(authorized_file, "baseline\n")
       File.mkdir_p!(result_root)
       File.write!(codex_binary, """
       #!/bin/sh
@@ -77,11 +79,12 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
             "IMPLEMENTER"
           ] do
         File.rm(trace_file)
-        target_writable_roots = if role == "IMPLEMENTER", do: [authorized_root], else: []
+        target_writable_roots = if role == "IMPLEMENTER", do: [authorized_root, authorized_file], else: []
 
         assert {:ok, _result} =
                  AppServer.run(workspace, "Run #{role}", issue,
                    role: role,
+                   role_run_id: "run-#{role}",
                    result_writable_root: result_root,
                    target_writable_roots: target_writable_roots
                  )
@@ -96,28 +99,29 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
         thread_start = Enum.find(payloads, &(&1["method"] == "thread/start"))
         turn_start = Enum.find(payloads, &(&1["method"] == "turn/start"))
 
+        assert is_binary(thread_start["params"]["permissions"])
+        refute Map.has_key?(thread_start["params"], "sandbox")
+        refute Map.has_key?(turn_start["params"], "sandboxPolicy")
+        profile_id = thread_start["params"]["permissions"]
+        profile = thread_start["params"]["config"]["permissions"][profile_id]
+        assert profile["extends"] == ":read-only"
+        assert profile["network"] == %{"enabled" => false}
+        filesystem = profile["filesystem"]
+        assert filesystem[result_root] == "write"
+
         if role == "IMPLEMENTER" do
-          assert thread_start["params"]["sandbox"] == "workspace-write"
-          assert turn_start["params"]["sandboxPolicy"] == %{
-                   "type" => "workspaceWrite",
-                   "writableRoots" => [result_root, authorized_root],
-                   "readOnlyAccess" => %{"type" => "fullAccess"},
-                   "networkAccess" => false
-                 }
+          assert filesystem[authorized_root] == "write"
+          assert filesystem[authorized_file] == "write"
         else
-          assert thread_start["params"]["sandbox"] == "workspace-write"
-          assert turn_start["params"]["sandboxPolicy"] == %{
-                   "type" => "workspaceWrite",
-                   "writableRoots" => [result_root],
-                   "readOnlyAccess" => %{"type" => "fullAccess"},
-                   "networkAccess" => false
-                 }
+          refute Map.has_key?(filesystem, authorized_root)
+          refute Map.has_key?(filesystem, authorized_file)
         end
       end
 
       assert {:error, {:target_write_not_allowed_for_role, "REVIEWER"}} =
                AppServer.start_session(workspace,
                  role: "REVIEWER",
+                 role_run_id: "run-reviewer-rejected",
                  result_writable_root: result_root,
                  target_writable_roots: [workspace]
                )
@@ -125,6 +129,7 @@ defmodule SymphonyElixir.NamedRoleAuthorityTest do
       assert {:error, :target_writable_root_outside_authorized_workspace} =
                AppServer.start_session(workspace,
                  role: "IMPLEMENTER",
+                 role_run_id: "run-implementer-rejected",
                  result_writable_root: result_root,
                  target_writable_roots: [workspace]
                )

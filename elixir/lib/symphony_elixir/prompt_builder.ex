@@ -30,6 +30,27 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp dispatch_guidance(%{role: role, input_path: input_path, result_path: result_path}) do
+    result_guidance =
+      case role do
+        "ARCHITECT" ->
+          """
+          For ARCHITECT, set `packet` to null and author only Architect findings.
+          Set `authorized_write_paths` to an empty list except for
+          `planning_complete`, where it may contain explicit repository-relative
+          files and/or directories for the next Implementer; never use absolute
+          paths or `..`.
+          """
+
+        _ ->
+          """
+          For this specialized role, set `packet` to the packet authored by this
+          execution, set top-level `findings` and `authorized_write_paths` to
+          empty lists, and never include `role_results`. Implementer packet
+          `head_sha` must be null because the trusted host creates the commit;
+          read-only roles may report their observed input HEAD.
+          """
+      end
+
     """
 
     ## Runtime dispatch contract
@@ -41,13 +62,7 @@ defmodule SymphonyElixir.PromptBuilder do
     that input packet. Set `role_run_id` to the dispatched identity and set
     `role` to #{role}.
 
-    For ARCHITECT, set `packet` to null and author only Architect findings.
-    Set `authorized_write_paths` to an empty list except for
-    `planning_complete`, where it must contain only explicit repository-relative
-    directories for the next Implementer; never use absolute paths or `..`.
-    For every specialized role, set `packet` to the packet authored by this
-    execution, set top-level `findings` and `authorized_write_paths` to empty
-    lists. Never include `role_results`; another actor cannot author your packet.
+    #{result_guidance}
     """
   end
 
