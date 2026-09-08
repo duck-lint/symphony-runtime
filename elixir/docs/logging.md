@@ -1,43 +1,22 @@
-# Logging Best Practices
+# Runtime logging
 
-This guide defines logging conventions for Symphony so Codex can diagnose failures quickly.
+Runtime logs are execution observation. They do not create lifecycle state or
+prove that a named role executed.
 
-## Goals
+Use stable key=value fields for diagnostic context. Where available, include:
 
-- Make logs searchable by issue and session.
-- Capture enough execution context to identify root cause without reruns.
-- Keep messages stable so dashboards/alerts are reliable.
+- durable task identity;
+- lifecycle, working-round, planning-attempt, and specialist-execution
+  identity supplied by Pilot;
+- the explicit role and Pilot grant identity;
+- App Server/session/process identity as observation;
+- outcome and concise failure reason; and
+- workspace, changed-path, authorization, and commit facts for writer runs.
 
-## Required Context Fields
+Do not use external metadata or model-supplied fields as Runtime authority.
+Do not infer execution from a role name, expected sequence, packet,
+or log line. Pilot retains the host evidence required to reconcile a role run.
 
-When logging issue-related work, include both identifiers:
-
-- `issue_id`: stable dispatch identity from the host-owned SQLite task projection
-  (`tasks.id`, normalized as `Issue.id`).
-- `issue_identifier`: human-readable task identifier from that projection
-  (`tasks.identifier`, normalized as `Issue.identifier`; for example `T-000620`).
-
-When logging Codex execution lifecycle events, include:
-
-- `session_id`: combined Codex thread/turn identifier.
-
-## Message Design
-
-- Use explicit `key=value` pairs in message text for high-signal fields.
-- Prefer deterministic wording for recurring lifecycle events.
-- Include the action outcome (`completed`, `failed`, `retrying`) and the reason/error when available.
-- Avoid logging large payloads unless required for debugging.
-
-## Scope Guidance
-
-- `AgentRunner`: log start/completion/failure with issue context, plus `session_id` when known.
-- `Orchestrator`: log dispatch, retry, terminal/non-active transitions, and worker exits with issue context. Include `session_id` whenever running-entry data has it.
-- `Codex.AppServer`: log session start/completion/error with issue context and `session_id`.
-
-## Checklist For New Logs
-
-- Is this event tied to a normalized Runtime work item? Include `issue_id` and
-  `issue_identifier`.
-- Is this event tied to a Codex session? Include `session_id`.
-- Is the failure reason present and concise?
-- Is the message format consistent with existing lifecycle logs?
+Runtime logs may report retries, process exits, and session events. Those are
+mechanical observations, not automatic lifecycle progression. Keep credential
+and secret material out of logs and UI responses.

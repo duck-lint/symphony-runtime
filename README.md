@@ -1,112 +1,60 @@
 # symphony-runtime
 
-> **SUPERVISED LOCAL MVP: PROVEN**
->
-> Runtime `bca0d7027c49ef9bc62ee07de0bf669b8d3cb3d6` has been exercised
-> against Pilot `a88b075fb0ab60af369b377992c98706affd3b5e` with the current
-> Pilot v2 SQLite database. Codex App Server startup, ARCHITECT orchestration,
-> role execution, and clean stop were proven under explicit
-> `SYMPHONY_SUPERVISED_LOCAL=1` supervision.
+The parent harness is the canonical SYMPHONY authority. Runtime is the
+project-independent deterministic executor; it does not redefine lifecycle
+meaning.
 
-This repository contains the Symphony implementation that `symphony-pilot`
-builds, identifies, pins, and runs for the local control plane. The runtime
-source here is owned by this project.
+Runtime owns:
 
-OpenAI Symphony is historical provenance and reference material only. Upstream
-compatibility is not a requirement, upstream changes are not lifecycle or
-architectural authority, and this project does not require an upstream-sync
-workflow. The Apache `LICENSE` and `NOTICE` are retained for attribution and
-licensing.
+- reading the Pilot-authorized project execution projection and grant;
+- task-scoped PM/Dispatcher reasoning continuity;
+- fresh specialist executions;
+- App Server, process, session, and workspace mechanics;
+- exact capability instantiation and enforcement; and
+- execution observation returned to Pilot.
 
-## Build and test on WSL
+Pilot owns task identity, lifecycle state, eligibility, grants, reconciliation,
+repository authority, publication, and the local API/UI projection. Runtime
+cannot assign, broaden, or reinterpret capability and cannot write Pilot
+lifecycle state.
 
-Physical runtime work is performed from the WSL/Linux environment. From the
-WSL view of this checkout:
+The canonical topology is a task-scoped persistent PM/Dispatcher followed by
+fresh Planner, Reviewer, Implementer, Adversary, and Archivist executions.
+There is no Architect actor. The parent harness defines the lifecycle; this
+repository documents only Runtime's execution boundary.
 
-```sh
-cd /mnt/f/PROJECT-REPOS/SYMPHONY/symphony-runtime/elixir
-mise trust
-mise install
-mise exec -- make ci
-```
+## Build boundary
 
-This is the canonical WSL build/test procedure. `make ci` installs
-dependencies, runs `mix hex.audit`, builds the development escript for source
-checks, then runs formatting, lint, coverage, and Dialyzer checks.
+From the Runtime repository's Linux/WSL view, use the reviewed toolchain and
+the repository's normal CI target:
 
-`mix.exs` selects an OS-separated build root for every Mix invocation, including
-direct `mix` commands and Make children. Linux uses
-`$HOME/.local/state/symphony-runtime/mix/linux/_build`; Windows uses the
-corresponding `%LOCALAPPDATA%` path. The physical F: checkout's `_build` is not
-consulted for project dependencies or native output. `MIX_BUILD_ROOT` remains an
-explicit override for an isolated test.
+    cd elixir
+    mise exec -- make ci
 
-To inspect the resolved path directly on either supported host, run from this
-directory:
+The production artifact is built with `mise exec -- make artifact`. Build and
+test results are evidence about the current implementation only; they do not
+establish conformance with the frozen lifecycle.
 
-```sh
-mix run --no-compile -e 'IO.puts(Mix.Project.build_path())'
-```
+## Role and write boundary
 
-The result must be under the Windows `.../symphony-runtime/mix/windows/_build`
-root or the Linux `.../symphony-runtime/mix/linux/_build` root. `make build`
-and `make test` invoke the same project-level configuration; they must not
-reintroduce the checkout `_build`.
+Planner may write only bounded plan and decision-memory artifacts.
+Implementer may write only its authorized project seam. Archivist may write
+only bounded archive, documentation, and project-memory artifacts. Reviewer,
+Adversary, and PM/Dispatcher are non-writing.
 
-The self-contained production artifact is written to:
+Runtime instantiates the exact separate grant supplied by Pilot. For every
+authorized writer, the host broker observes and validates the exact filesystem
+delta against that grant, then stages and commits accepted changes. Roles never
+write .git or perform Git staging/commit. There is no shared broad writable
+root.
 
-```text
-elixir/burrito_out/symphony_linux_x86_64
-```
+## Evidence status
 
-Build it with `mise exec -- make artifact`. It includes the runtime and native
-Exqlite NIF and can be copied as a single deployment file. `--version` reports
-the application version without starting the service. `--check-tracker
-<WORKFLOW.md>` is an offline artifact smoke command: it validates the
-configured pilot schema and performs one project-scoped SQLite read without
-requiring the acknowledgement flag or starting the service.
+The supervised-local substrate and Runtime/App Server integration are proven
+under explicit operator supervision. The frozen fresh-specialist lifecycle,
+writer brokerage, unattended credential isolation, publication, and merge are
+not claimed live-proven by that evidence.
 
-The repository pins Zig `0.15.2` in `mise.toml`. Burrito also requires host
-`xz` and `make`; `make artifact` performs an early version/tool presence check
-and fails before the release build if either is absent.
-
-For the source-level checks individually, use the corresponding Make targets:
-
-```sh
-mise exec -- make fmt-check
-mise exec -- make lint
-mise exec -- make coverage
-mise exec -- make dialyzer
-```
-
-The artifact target stages the production Burrito executable at the ignored
-`bin/symphony` path. That path has one meaning: the deployable runtime used by
-Pilot's Step 1 path/version/SHA pinning seam. A plain `mix build` stages its
-development escript at `bin/symphony-dev` and cannot replace the production
-path. Pilot treats the selected executable as host runtime input and pins its
-reported version and SHA-256 digest before launch; the executable itself is not
-copied into a generated project deployment.
-
-For a local production proof after `make artifact`, run:
-
-```sh
-bash scripts/smoke_burrito_sqlite.sh bin/symphony test/fixtures/pilot_control_plane_v2.sqlite3
-```
-
-See [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the bounded provenance and
-pilot-integration evidence recorded during the ownership cutover.
-
-## Current integration boundary
-
-Runtime is project-independent and lifecycle-read-only. It reads the
-project-scoped Pilot SQLite projection and routes eligible work; Pilot remains
-the sole lifecycle writer and reconciliation authority. The current contract
-is Pilot schema v2 with migration lineage `control-plane-v1` followed by
-`control-plane-v2-storage-reservations`.
-
-The supervised-local launch uses the operator's existing authenticated Codex
-environment and the six project-independent role policies. This is a live
-local-development path, not proof of unattended credential isolation,
-quota/EDQUOT enforcement, pin-to-exec TOCTOU closure, publication, PR
-creation, or merge. The Runtime dashboard at `http://127.0.0.1:4041` is
-observability only and is not a second lifecycle authority.
+Build and test commands describe the current implementation, not conformance
+with the frozen lifecycle. Runtime has no independent scheduler or lifecycle
+authority.
