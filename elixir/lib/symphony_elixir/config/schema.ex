@@ -15,16 +15,20 @@ defmodule SymphonyElixir.Config.Schema do
     embedded_schema do
       field(:database_path, :string)
       field(:project_slug, :string)
+      field(:reconcile_command, {:array, :string})
     end
     def changeset(schema, attrs) do
       schema
-      |> cast(attrs, [:database_path, :project_slug], empty_values: [])
-      |> validate_required([:database_path, :project_slug])
+      |> cast(attrs, [:database_path, :project_slug, :reconcile_command], empty_values: [])
+      |> validate_required([:database_path, :project_slug, :reconcile_command])
       |> validate_change(:database_path, fn :database_path, value ->
         if Path.type(value) == :absolute, do: [], else: [database_path: "must be absolute"]
       end)
       |> validate_change(:project_slug, fn :project_slug, value ->
         if Regex.match?(~r/^[a-z0-9][a-z0-9-]{0,63}$/, value), do: [], else: [project_slug: "is unsafe"]
+      end)
+      |> validate_change(:reconcile_command, fn :reconcile_command, value ->
+        if is_list(value) and value != [] and Enum.all?(value, &(is_binary(&1) and &1 != "")), do: [], else: [reconcile_command: "must be a non-empty command"]
       end)
     end
   end
@@ -47,8 +51,20 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:root, :string)
+      field(:materialize_command, {:array, :string})
+      field(:repository_remote, :string)
     end
-    def changeset(schema, attrs), do: schema |> cast(attrs, [:root], empty_values: []) |> validate_required([:root])
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:root, :materialize_command, :repository_remote], empty_values: [])
+      |> validate_required([:root, :materialize_command, :repository_remote])
+      |> validate_change(:repository_remote, fn :repository_remote, value ->
+        if is_binary(value) and value != "" and not String.contains?(value, ["\n", "\r", "\0"]), do: [], else: [repository_remote: "is invalid"]
+      end)
+      |> validate_change(:materialize_command, fn :materialize_command, value ->
+        if is_list(value) and value != [] and Enum.all?(value, &(is_binary(&1) and &1 != "")), do: [], else: [materialize_command: "must be a non-empty command"]
+      end)
+    end
   end
 
   defmodule Agent do

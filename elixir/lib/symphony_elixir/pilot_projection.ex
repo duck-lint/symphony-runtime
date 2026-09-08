@@ -31,7 +31,7 @@ defmodule SymphonyElixir.PilotProjection do
 
   defstruct [:task, :lifecycle_id, :working_round_id, :planning_attempt_id, :dispatch_id,
              :role, :expected_starting_head, :grant, :namespace, :result_path, :execution_path,
-             :result_root, :write_roots]
+             :result_root, :write_roots, handoff_inputs: []]
 
   @type t :: %__MODULE__{}
 
@@ -113,7 +113,8 @@ defmodule SymphonyElixir.PilotProjection do
         grant: %{id: grant_id, role: role, read_scopes: read_scopes, write_scopes: write_scopes,
           issued_at: issued_at}, namespace: namespace,
         result_path: Path.join(namespace, "outbox/result.json"),
-        execution_path: Path.join(namespace, "host/execution.json")}}
+        execution_path: Path.join(namespace, "host/execution.json"),
+        handoff_inputs: Map.get(packet, "handoff_inputs", [])}}
     end
   end
 
@@ -127,6 +128,7 @@ defmodule SymphonyElixir.PilotProjection do
     if Enum.all?(expected, fn {key, value} -> Map.get(packet, key) == value end) and
        is_map(grant) and Map.get(grant, "id") == row.grant_id and
        Map.get(grant, "role") == row.role and
+       valid_handoff_inputs?(Map.get(packet, "handoff_inputs", [])) and
        decode_grant_fields(grant, row) do
       {:ok, packet}
     else
@@ -134,6 +136,18 @@ defmodule SymphonyElixir.PilotProjection do
     end
   end
   defp validate_packet(_packet, _row), do: {:error, :pilot_dispatch_packet_invalid}
+
+  defp valid_handoff_inputs?(inputs) when is_list(inputs) and length(inputs) <= 8 do
+    Enum.all?(inputs, fn input ->
+      is_map(input) and is_binary(input["kind"]) and byte_size(input["kind"]) <= 128 and
+        input["source_role"] in ["PILOT" | @roles] and
+        optional_uuid?(input["source_dispatch_id"]) and is_map(input["input"])
+    end)
+  end
+  defp valid_handoff_inputs?(_), do: false
+
+  defp optional_uuid?(nil), do: true
+  defp optional_uuid?(value), do: is_binary(value) and Regex.match?(@uuid, value)
 
   defp decode_grant_fields(grant, row) do
     read = Map.get(grant, "read_scopes") || decode_packet_scopes(Map.get(grant, "read_scopes_json"))

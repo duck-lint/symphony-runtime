@@ -2,22 +2,25 @@ defmodule SymphonyElixir.AgentRunner do
   @moduledoc """Runs exactly one Pilot-authorized execution and emits host evidence."""
 
   require Logger
-  alias SymphonyElixir.{Codex.AppServer, PilotProjection, PMContinuity, PromptBuilder, Workspace}
+  alias SymphonyElixir.{Codex.AppServer, Config, PilotProjection, PMContinuity, PromptBuilder, Workspace}
 
   @roles ~w(PROJECT-MANAGER PLANNER IMPLEMENTER REVIEWER ADVERSARY ARCHIVIST)
 
   @spec run(PilotProjection.t(), pid() | nil, keyword()) :: :ok | {:error, term()}
   def run(%PilotProjection{} = dispatch, update_recipient \\ nil, opts \\ []) do
-    with {:ok, workspace} <- Workspace.ensure_task_workspace(dispatch.task),
+    task = Map.put(dispatch.task, :expected_starting_head, dispatch.expected_starting_head)
+    with {:ok, workspace} <- Workspace.ensure_task_workspace(task),
          {:ok, execution} <- prepare_execution(dispatch, workspace),
          {:ok, session} <- AppServer.start_session(workspace, execution: execution,
            developer_instructions: Keyword.get(opts, :developer_instructions)) do
       try do
         with :ok <- write_launch_evidence(execution, session, workspace),
+             :ok <- reconcile_with_pilot(execution, workspace, "started"),
              :ok <- notify_launch(update_recipient, execution, session),
              result <- run_turn(session, execution, workspace, update_recipient, opts),
-             :ok <- finish_execution(session, execution, workspace, result) do
-          if execution.role == "PROJECT-MANAGER" do
+             :ok <- finish_execution(session, execution, workspace, result),
+             :ok <- reconcile_with_pilot(execution, workspace, "terminated") do
+          if execution.role == "PROJECT-MANAGER" and match?({:ok, _}, result) do
             PMContinuity.record(execution.task.id, result)
           end
           :ok
@@ -89,6 +92,24 @@ defmodule SymphonyElixir.AgentRunner do
           session_id: session.thread_id, codex_app_server_pid: Map.get(session.metadata, :codex_app_server_pid)}})
     end
     :ok
+  end
+
+  defp reconcile_with_pilot(execution, workspace, phase) do
+    case Config.settings!().pilot.reconcile_command do
+      [executable | arguments] ->
+        command = arguments ++ ["--workspace", workspace, "--task-id", execution.task.id,
+          "--dispatch-id", execution.dispatch_id, "--phase", phase]
+        case System.cmd(executable, command, stderr_to_stdout: true) do
+          {output, 0} ->
+            case Jason.decode(String.trim(output)) do
+              {:ok, %{"acknowledged" => true, "dispatch_id" => dispatch_id, "phase" => ^phase}} ->
+                if dispatch_id == execution.dispatch_id, do: :ok, else: {:error, {:pilot_reconciliation_identity_mismatch, phase}}
+              _ -> {:error, {:pilot_reconciliation_not_acknowledged, phase}}
+            end
+          {_output, status} -> {:error, {:pilot_reconciliation_rejected, phase, status}}
+        end
+      _ -> {:error, :pilot_reconciliation_not_configured}
+    end
   end
 
   defp finish_execution(session, execution, workspace, result) do

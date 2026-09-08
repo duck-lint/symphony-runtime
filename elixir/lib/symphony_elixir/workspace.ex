@@ -39,13 +39,63 @@ defmodule SymphonyElixir.Workspace do
   end
 
   @spec ensure_task_workspace(map()) :: {:ok, Path.t()} | {:error, term()}
-  def ensure_task_workspace(%{identifier: identifier}) when is_binary(identifier) do
+  def ensure_task_workspace(%{identifier: identifier} = task) when is_binary(identifier) do
     with :ok <- validate_identifier(identifier) do
       workspace = path_for_task(identifier)
-      if File.dir?(workspace), do: validate(workspace, identifier), else: {:error, :task_workspace_missing}
+      with :ok <- materialize_if_absent(workspace),
+           {:ok, canonical} <- validate(workspace, identifier),
+           :ok <- verify_repository(canonical),
+           :ok <- verify_starting_state(canonical, task) do
+        {:ok, canonical}
+      end
     end
   end
   def ensure_task_workspace(_), do: {:error, :task_identity_missing}
+
+  @doc false
+  def verify_starting_state_for_test(workspace, task), do: verify_starting_state(workspace, task)
+
+  defp materialize_if_absent(workspace) do
+    if File.dir?(workspace) do
+      :ok
+    else
+      File.mkdir_p!(workspace)
+      case Config.settings!().workspace.materialize_command do
+        [executable | arguments] ->
+          case System.cmd(executable, arguments, cd: workspace, stderr_to_stdout: true) do
+            {_output, 0} -> :ok
+            {_output, status} -> {:error, {:workspace_materialization_failed, status}}
+          end
+        _ -> {:error, :workspace_materialization_not_authorized}
+      end
+    end
+  end
+
+  defp verify_repository(workspace) do
+    expected = Config.settings!().workspace.repository_remote
+    case System.cmd("git", ["remote", "get-url", "origin"], cd: workspace, stderr_to_stdout: true) do
+      {remote, 0} -> if String.trim(remote) == expected, do: :ok, else: {:error, :workspace_repository_identity_mismatch}
+      {_output, _status} -> {:error, :workspace_repository_identity_mismatch}
+    end
+  end
+
+  defp verify_starting_state(workspace, %{expected_starting_head: expected}) when is_binary(expected) do
+    case System.cmd("git", ["rev-parse", "HEAD"], cd: workspace, stderr_to_stdout: true) do
+      {head, 0} ->
+        if String.trim(head) != expected do
+          {:error, :workspace_starting_head_mismatch}
+        else
+          case System.cmd("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], cd: workspace, stderr_to_stdout: true) do
+            {"", 0} -> :ok
+            {_status, 0} -> {:error, :workspace_dirty}
+            {_output, _status} -> {:error, :workspace_starting_state_unverifiable}
+          end
+        end
+      {_output, _status} -> {:error, :workspace_starting_state_unverifiable}
+    end
+  end
+
+  defp verify_starting_state(_workspace, _task), do: {:error, :dispatch_starting_head_missing}
 
   defp validate_identifier(identifier) do
     if Regex.match?(@task_identifier, identifier), do: :ok, else: {:error, :invalid_task_identifier}

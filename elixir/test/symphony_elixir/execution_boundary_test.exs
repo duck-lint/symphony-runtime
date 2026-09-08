@@ -8,6 +8,24 @@ defmodule SymphonyElixir.ExecutionBoundaryTest do
     assert_raise ArgumentError, fn -> Workspace.workspace_key("unsafe/task") end
   end
 
+  test "starting HEAD and clean worktree are required before execution" do
+    root = Path.join(System.tmp_dir!(), "symphony-workspace-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf!(root) end)
+    System.cmd("git", ["init", "-q"], cd: root)
+    File.write!(Path.join(root, "README"), "base\n")
+    System.cmd("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "add", "README"], cd: root)
+    System.cmd("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "base"], cd: root)
+    {head, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: root)
+    task = %{expected_starting_head: String.trim(head)}
+    assert :ok = Workspace.verify_starting_state_for_test(root, task)
+    assert {:error, :workspace_starting_head_mismatch} =
+             Workspace.verify_starting_state_for_test(root, %{expected_starting_head: String.duplicate("a", 40)})
+    File.write!(Path.join(root, "dirty"), "not clean\n")
+    assert {:error, :workspace_dirty} =
+             Workspace.verify_starting_state_for_test(root, task)
+  end
+
   test "NUL-delimited porcelain includes both rename paths" do
     raw = "R  harness/new.md\x00harness/old.md\x00C  src/copy.ex\x00src/original.ex\x00"
     assert {:ok, paths} = AgentRunner.parse_porcelain_z_for_test(raw)
