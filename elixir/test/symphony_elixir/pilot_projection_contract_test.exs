@@ -23,6 +23,14 @@ defmodule SymphonyElixir.PilotProjectionContractTest do
              PilotProjection.validate_dispatch_packet_for_test(put_in(packet["capability_grant"]["write_scopes"], ["."]), row)
   end
 
+  test "an existing execution receipt does not hide an authorized dispatch" do
+    receipt = Path.join(System.tmp_dir!(), "symphony-execution-#{System.unique_integer([:positive])}.json")
+    File.write!(receipt, "{}\n")
+    on_exit(fn -> File.rm(receipt) end)
+    dispatch = %PilotProjection{dispatch_id: uuid(), execution_path: receipt}
+    assert {:ok, ^dispatch} = PilotProjection.visible_authorized_dispatch_for_test(dispatch)
+  end
+
   test "Pilot-selected handoffs are rendered, while Runtime supplies no context" do
     dispatch = %PilotProjection{task: %{id: uuid(), identifier: "T-000001", title: "task", objective: "objective"},
       lifecycle_id: uuid(), working_round_id: uuid(), planning_attempt_id: uuid(), dispatch_id: uuid(),

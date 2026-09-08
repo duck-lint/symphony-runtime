@@ -40,9 +40,15 @@ defmodule SymphonyElixir.PilotProjection do
     path = settings.pilot.database_path
     with {:ok, row} <- read_authorized_row(path, settings.pilot.project_slug),
          {:ok, dispatch} <- load_dispatch(path, row) do
-      if dispatch && File.exists?(dispatch.execution_path), do: {:ok, nil}, else: {:ok, dispatch}
+      visible_authorized_dispatch(dispatch)
     end
   end
+
+  @doc false
+  def visible_authorized_dispatch_for_test(dispatch), do: visible_authorized_dispatch(dispatch)
+
+  defp visible_authorized_dispatch(nil), do: {:ok, nil}
+  defp visible_authorized_dispatch(%__MODULE__{} = dispatch), do: {:ok, dispatch}
 
   @doc false
   @spec validate_dispatch_packet_for_test(map(), map()) :: {:ok, map()} | {:error, term()}
