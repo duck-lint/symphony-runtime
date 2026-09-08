@@ -1,6 +1,6 @@
 defmodule SymphonyElixir.HttpServer do
   @moduledoc """
-  Compatibility facade that starts the Phoenix observability endpoint when enabled.
+  Starts the Phoenix observability endpoint when enabled.
   """
 
   alias SymphonyElixir.{Config, Orchestrator}

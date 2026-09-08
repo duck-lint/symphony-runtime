@@ -26,7 +26,6 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixir.Application,
           SymphonyElixir.CLI,
           SymphonyElixir.Codex.AppServer,
-          SymphonyElixir.Codex.DynamicTool,
           SymphonyElixir.HttpServer,
           SymphonyElixir.StatusDashboard,
           SymphonyElixir.LogFile,
@@ -43,10 +42,6 @@ defmodule SymphonyElixir.MixProject do
           SymphonyElixirWeb.Router,
           SymphonyElixirWeb.Router.Helpers
         ]
-      ],
-      test_ignore_filters: [
-        "test/support/snapshot_support.exs",
-        "test/support/test_support.exs"
       ],
       dialyzer: [
         plt_add_apps: [:mix]
@@ -75,13 +70,11 @@ defmodule SymphonyElixir.MixProject do
       {:phoenix, "~> 1.8.0"},
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.2.0"},
-      {:req, "~> 0.7.0"},
       {:jason, "~> 1.4"},
       {:yaml_elixir, "~> 2.12"},
       {:solid, "~> 1.3.0"},
       {:ecto, "~> 3.14.0"},
-      # Direct read-only SQLite access for the Step 3 tracker adapter. The
-      # adapter does not need Ecto's persistence layer or pilot's migrations.
+      # Runtime reads Pilot's lifecycle projection without owning its schema.
       {:exqlite, "~> 0.39.0"},
       {:burrito, "~> 1.5", only: :prod, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

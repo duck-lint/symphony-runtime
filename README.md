@@ -56,5 +56,5 @@ writer brokerage, unattended credential isolation, publication, and merge are
 not claimed live-proven by that evidence.
 
 Build and test commands describe the current implementation, not conformance
-with the frozen lifecycle. Runtime has no independent scheduler or lifecycle
-authority.
+with the frozen lifecycle. Runtime schedules only Pilot-authorized dispatches;
+it has no independent lifecycle scheduler or lifecycle authority.

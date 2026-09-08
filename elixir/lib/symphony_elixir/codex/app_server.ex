@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.{Config, PathSafety, PilotProjection}
 
   @initialize_id 1
   @thread_start_id 2
@@ -22,16 +22,15 @@ defmodule SymphonyElixir.Codex.AppServer do
           config_overrides: map() | nil,
           thread_id: String.t(),
           workspace: Path.t(),
-          worker_host: String.t() | nil,
           dynamic_tool_binding: map(),
           role: String.t()
         }
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def run(workspace, prompt, issue, opts \\ []) do
+  def run(workspace, prompt, task, opts \\ []) do
     with {:ok, session} <- start_session(workspace, opts) do
       try do
-        run_turn(session, prompt, issue, opts)
+        run_turn(session, prompt, task, opts)
       after
         stop_session(session)
       end
@@ -40,15 +39,16 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
-    worker_host = Keyword.get(opts, :worker_host)
-    dynamic_tool_binding = DynamicTool.bind()
+    execution = Keyword.get(opts, :execution)
+    dynamic_tool_binding = %{tool_specs: []}
 
-    with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host, dynamic_tool_binding) do
-      metadata = port_metadata(port, worker_host)
+    with {:ok, execution} <- validate_execution(execution, workspace),
+         {:ok, expanded_workspace} <- validate_workspace_cwd(workspace),
+         {:ok, port} <- start_port(expanded_workspace, dynamic_tool_binding) do
+      metadata = port_metadata(port)
 
-      with {:ok, configured_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, session_policies} <- dispatch_policies(configured_policies, expanded_workspace, opts),
+      with {:ok, configured_policies} <- session_policies(expanded_workspace),
+           {:ok, session_policies} <- dispatch_policies(configured_policies, expanded_workspace, execution),
            {:ok, thread_id} <-
              do_start_session(port, expanded_workspace, session_policies, dynamic_tool_binding, opts) do
         {:ok,
@@ -63,9 +63,9 @@ defmodule SymphonyElixir.Codex.AppServer do
            config_overrides: session_policies.config_overrides,
            thread_id: thread_id,
            workspace: expanded_workspace,
-           worker_host: worker_host,
            dynamic_tool_binding: dynamic_tool_binding,
-           role: Keyword.get(opts, :role, "ARCHITECT")
+           role: execution.role,
+           execution: execution
          }}
       else
         {:error, reason} ->
@@ -74,6 +74,10 @@ defmodule SymphonyElixir.Codex.AppServer do
       end
     end
   end
+
+  @doc false
+  @spec validate_execution_for_test(term(), Path.t()) :: {:ok, map()} | {:error, term()}
+  def validate_execution_for_test(execution, workspace), do: validate_execution(execution, workspace)
 
   @spec run_turn(session(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run_turn(
@@ -89,20 +93,20 @@ defmodule SymphonyElixir.Codex.AppServer do
           dynamic_tool_binding: dynamic_tool_binding
         },
         prompt,
-        issue,
+        task,
         opts \\ []
       ) do
     on_message = Keyword.get(opts, :on_message, &default_on_message/1)
 
     tool_executor =
       Keyword.get(opts, :tool_executor, fn tool, arguments ->
-        DynamicTool.execute(tool, arguments, dynamic_tool_binding, issue: issue)
+        unsupported_tool(tool, arguments)
       end)
 
-    case start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+    case start_turn(port, thread_id, prompt, task, workspace, approval_policy, turn_sandbox_policy) do
       {:ok, turn_id} ->
         session_id = "#{thread_id}-#{turn_id}"
-        Logger.info("Codex session started for #{issue_context(issue)} session_id=#{session_id}")
+        Logger.info("Codex session started for #{task_context(task)} session_id=#{session_id}")
 
         emit_message(
           on_message,
@@ -117,7 +121,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
         case await_turn_completion(port, on_message, tool_executor, auto_approve_requests) do
           {:ok, result} ->
-            Logger.info("Codex session completed for #{issue_context(issue)} session_id=#{session_id}")
+            Logger.info("Codex session completed for #{task_context(task)} session_id=#{session_id}")
 
             {:ok,
              %{
@@ -128,7 +132,7 @@ defmodule SymphonyElixir.Codex.AppServer do
              }}
 
           {:error, reason} ->
-            Logger.warning("Codex session ended with error for #{issue_context(issue)} session_id=#{session_id}: #{inspect(reason)}")
+            Logger.warning("Codex session ended with error for #{task_context(task)} session_id=#{session_id}: #{inspect(reason)}")
 
             emit_message(
               on_message,
@@ -144,7 +148,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         end
 
       {:error, reason} ->
-        Logger.error("Codex session failed for #{issue_context(issue)}: #{inspect(reason)}")
+        Logger.error("Codex session failed for #{task_context(task)}: #{inspect(reason)}")
         emit_message(on_message, :startup_failed, %{reason: reason}, metadata)
         {:error, reason}
     end
@@ -155,7 +159,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     stop_port(port)
   end
 
-  defp validate_workspace_cwd(workspace, nil) when is_binary(workspace) do
+  defp validate_workspace_cwd(workspace) when is_binary(workspace) do
     expanded_workspace = Path.expand(workspace)
     expanded_root = Config.local_workspace_root()
     expanded_root_prefix = expanded_root <> "/"
@@ -183,21 +187,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp validate_workspace_cwd(workspace, worker_host)
-       when is_binary(workspace) and is_binary(worker_host) do
-    cond do
-      String.trim(workspace) == "" ->
-        {:error, {:invalid_workspace_cwd, :empty_remote_workspace, worker_host}}
-
-      String.contains?(workspace, ["\n", "\r", <<0>>]) ->
-        {:error, {:invalid_workspace_cwd, :invalid_remote_workspace, worker_host, workspace}}
-
-      true ->
-        {:ok, workspace}
-    end
-  end
-
-  defp start_port(workspace, nil, dynamic_tool_binding) do
+  defp start_port(workspace, _dynamic_tool_binding) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -210,9 +200,8 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(local_launch_command(dynamic_tool_binding))],
+            args: [~c"-lc", String.to_charlist("exec " <> Config.settings!().codex.command)],
             cd: String.to_charlist(workspace),
-            env: tracker_secret_port_env(dynamic_tool_binding),
             line: @port_line_bytes
           ]
         )
@@ -221,50 +210,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, worker_host, dynamic_tool_binding) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace, dynamic_tool_binding)
-    SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
-  end
-
-  defp local_launch_command(dynamic_tool_binding) do
-    [
-      tracker_secret_unset_command(dynamic_tool_binding),
-      "exec #{Config.settings!().codex.command}"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" && ")
-  end
-
-  defp remote_launch_command(workspace, dynamic_tool_binding) when is_binary(workspace) do
-    [
-      "cd #{shell_escape(workspace)}",
-      tracker_secret_unset_command(dynamic_tool_binding),
-      "exec #{Config.settings!().codex.command}"
-    ]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" && ")
-  end
-
-  defp tracker_secret_port_env(dynamic_tool_binding) do
-    dynamic_tool_binding.secret_environment_names
-    |> valid_environment_names()
-    |> Enum.map(fn name -> {String.to_charlist(name), false} end)
-  end
-
-  defp tracker_secret_unset_command(dynamic_tool_binding) do
-    case dynamic_tool_binding.secret_environment_names |> valid_environment_names() do
-      [] -> nil
-      names -> "unset " <> Enum.join(names, " ")
-    end
-  end
-
-  defp valid_environment_names(names) do
-    Enum.filter(names, fn name ->
-      is_binary(name) and String.match?(name, ~r/^[A-Za-z_][A-Za-z0-9_]*$/)
-    end)
-  end
-
-  defp port_metadata(port, worker_host) when is_port(port) do
+  defp port_metadata(port) when is_port(port) do
     base_metadata =
       case :erlang.port_info(port, :os_pid) do
         {:os_pid, os_pid} ->
@@ -274,10 +220,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           %{}
       end
 
-    case worker_host do
-      host when is_binary(host) -> Map.put(base_metadata, :worker_host, host)
-      _ -> base_metadata
-    end
+    base_metadata
   end
 
   defp send_initialize(port) do
@@ -304,36 +247,16 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp session_policies(workspace, nil) do
+  defp session_policies(workspace) do
     Config.codex_runtime_settings(workspace)
   end
-
-  defp session_policies(workspace, worker_host) when is_binary(worker_host) do
-    Config.codex_runtime_settings(workspace, remote: true)
+  defp dispatch_policies(policies, expanded_workspace, execution) do
+    dispatch_policies_for_role(policies, expanded_workspace, execution.role,
+      execution.result_root, execution.write_roots, execution.dispatch_id)
   end
 
-  defp dispatch_policies(policies, expanded_workspace, opts) do
-    case Keyword.fetch(opts, :role) do
-      :error ->
-        # Direct AppServer callers retain the configured low-level contract.
-        # AgentRunner always supplies a host-selected role and therefore takes
-        # the fail-closed branch below.
-        {:ok, policies}
-
-      {:ok, role} ->
-        dispatch_policies_for_role(
-          policies,
-          expanded_workspace,
-          role,
-          Keyword.get(opts, :result_writable_root),
-          Keyword.get(opts, :target_writable_roots),
-          Keyword.get(opts, :role_run_id)
-        )
-    end
-  end
-
-  defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, target_writable_roots, role_run_id) do
-    if role not in ["ARCHITECT", "PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] do
+  defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, authorized_write_roots, dispatch_id) do
+    if role not in ["PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] do
       {:error, {:invalid_role, role}}
     else
       if match?({:win32, _}, :os.type()) do
@@ -344,23 +267,18 @@ defmodule SymphonyElixir.Codex.AppServer do
           workspace,
           role,
           result_writable_root,
-          target_writable_roots,
-          role_run_id
+          authorized_write_roots,
+          dispatch_id
         )
       end
     end
   end
 
-  defp dispatch_permission_profile(policies, workspace, role, result_writable_root, target_writable_roots, role_run_id) do
-    profile_id =
-      case role_run_id do
-        nil -> "symphony-role-" <> Integer.to_string(System.unique_integer([:positive]))
-        value when is_binary(value) -> "symphony-role-" <> value
-        _ -> nil
-      end
+  defp dispatch_permission_profile(policies, workspace, role, result_writable_root, authorized_write_roots, dispatch_id) do
+    profile_id = if is_binary(dispatch_id), do: "symphony-role-" <> dispatch_id, else: nil
 
     if not is_binary(profile_id) or not Regex.match?(~r/^symphony-role-[A-Za-z0-9_-]{1,100}$/, profile_id) do
-      {:error, {:invalid_role_run_id, role_run_id}}
+      {:error, {:invalid_dispatch_id, dispatch_id}}
     else
       if not is_binary(result_writable_root) or Path.type(result_writable_root) != :absolute do
         {:error, {:invalid_result_writable_root, result_writable_root}}
@@ -368,25 +286,25 @@ defmodule SymphonyElixir.Codex.AppServer do
         if String.starts_with?(result_writable_root <> "/", workspace <> "/") or result_writable_root == workspace do
           {:error, {:result_writable_root_inside_workspace, result_writable_root}}
         else
-          if not is_list(target_writable_roots) or Enum.any?(target_writable_roots, &(not is_binary(&1) or Path.type(&1) != :absolute)) do
-            {:error, {:invalid_target_writable_roots, target_writable_roots}}
+          if not is_list(authorized_write_roots) or Enum.any?(authorized_write_roots, &(not is_binary(&1) or Path.type(&1) != :absolute)) do
+            {:error, {:invalid_authorized_write_roots, authorized_write_roots}}
           else
-            expanded_target_roots = Enum.map(target_writable_roots, &Path.expand/1)
+            expanded_authorized_roots = Enum.map(authorized_write_roots, &Path.expand/1)
 
-            if Enum.any?(expanded_target_roots, fn root ->
+            if Enum.any?(expanded_authorized_roots, fn root ->
                  relative_path = Path.relative_to(root, workspace)
                  root == workspace or not valid_workspace_relative_path?(relative_path)
                end) do
-              {:error, :target_writable_root_outside_authorized_workspace}
+              {:error, :authorized_write_root_outside_workspace}
             else
-              if role != "IMPLEMENTER" and target_writable_roots != [] do
-                {:error, {:target_write_not_allowed_for_role, role}}
+              if role in ["PROJECT-MANAGER", "REVIEWER", "ADVERSARY"] and authorized_write_roots != [] do
+                {:error, {:authorized_write_not_allowed_for_role, role}}
               else
-                if role == "IMPLEMENTER" and target_writable_roots == [] do
-                  {:error, :implementer_requires_authorized_target_root}
+                if role in ["PLANNER", "IMPLEMENTER", "ARCHIVIST"] and authorized_write_roots == [] do
+                  {:error, {:writer_requires_authorized_write_root, role}}
                 else
                   filesystem =
-                    expanded_target_roots
+                    expanded_authorized_roots
                     |> Enum.reduce(%{Path.expand(result_writable_root) => "write"}, fn path, entries ->
                       Map.put(entries, path, "write")
                     end)
@@ -455,7 +373,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         params
       end
 
-    params = put_in(params, ["params", "dynamicTools"], dynamic_tool_binding.tool_specs)
+    params = put_in(params, ["params", "dynamicTools"], [])
     params =
       case Keyword.get(opts, :developer_instructions) do
         value when is_binary(value) and value != "" -> put_in(params, ["params", "developerInstructions"], value)
@@ -476,7 +394,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_turn(port, thread_id, prompt, issue, workspace, approval_policy, turn_sandbox_policy) do
+  defp start_turn(port, thread_id, prompt, task, workspace, approval_policy, turn_sandbox_policy) do
     params = %{
       "method" => "turn/start",
       "id" => @turn_start_id,
@@ -489,7 +407,7 @@ defmodule SymphonyElixir.Codex.AppServer do
           }
         ],
         "cwd" => workspace,
-        "title" => "#{issue.identifier}: #{issue.title}",
+        "title" => "#{task.identifier}: #{task.title}",
         "approvalPolicy" => approval_policy
       }
     }
@@ -1017,10 +935,10 @@ defmodule SymphonyElixir.Codex.AppServer do
     |> Enum.map(&tool_request_user_input_option_label/1)
     |> Enum.reject(&is_nil/1)
     |> case do
-      labels ->
-        Enum.find(labels, &(&1 == "Approve this Session")) ||
-          Enum.find(labels, &(&1 == "Approve Once")) ||
-          Enum.find(labels, &approval_option_label?/1)
+      options ->
+        Enum.find(options, &(&1 == "Approve this Session")) ||
+          Enum.find(options, &(&1 == "Approve Once")) ||
+          Enum.find(options, &approval_option_label?/1)
     end
   end
 
@@ -1103,9 +1021,11 @@ defmodule SymphonyElixir.Codex.AppServer do
     |> String.starts_with?("{")
   end
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
-    "issue_id=#{issue_id} issue_identifier=#{identifier}"
+  defp task_context(%{id: task_id, identifier: identifier}) do
+    "task_id=#{task_id} identifier=#{identifier}"
   end
+
+  defp task_context(_task), do: "task_id=unknown"
 
   defp stop_port(port) when is_port(port) do
     case :erlang.port_info(port) do
@@ -1129,7 +1049,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp metadata_from_message(port, payload) do
-    port |> port_metadata(nil) |> maybe_set_usage(payload)
+    port |> port_metadata() |> maybe_set_usage(payload)
   end
 
   defp maybe_set_usage(metadata, payload) when is_map(payload) do
@@ -1144,11 +1064,71 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   defp maybe_set_usage(metadata, _payload), do: metadata
 
-  defp shell_escape(value) when is_binary(value) do
-    "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
+  defp default_on_message(_message), do: :ok
+
+  defp unsupported_tool(_tool, _arguments) do
+    %{"success" => false, "output" => "Runtime exposes no model-authorized tools.",
+      "contentItems" => [%{"type" => "inputText", "text" => "tool_not_authorized"}]}
   end
 
-  defp default_on_message(_message), do: :ok
+  defp validate_execution(%PilotProjection{} = execution, workspace) when is_binary(workspace) do
+    task = if is_map(execution.task), do: execution.task, else: %{}
+    result_root = if is_binary(execution.result_path), do: Path.expand(execution.result_path), else: nil
+    workspace = Path.expand(workspace)
+    grant = if is_map(execution.grant), do: execution.grant, else: %{}
+    read_scopes = Map.get(grant, :read_scopes, [])
+    write_scopes = Map.get(grant, :write_scopes, [])
+    write_roots = if valid_scope_list?(write_scopes), do: Enum.map(write_scopes, &Path.expand(Path.join(workspace, &1))), else: []
+    writer? = execution.role in ["PLANNER", "IMPLEMENTER", "ARCHIVIST"]
+
+    cond do
+      execution.role not in ["PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] ->
+        {:error, :invalid_role}
+      not valid_uuid?(execution.dispatch_id) ->
+        {:error, :invalid_dispatch_id}
+      not valid_uuid?(Map.get(task, :id)) ->
+        {:error, :invalid_task_id}
+      not valid_sha?(execution.expected_starting_head) ->
+        {:error, :invalid_expected_starting_head}
+      not is_map(execution.grant) or Map.get(grant, :role) != execution.role ->
+        {:error, :invalid_pilot_grant}
+      not valid_uuid?(Map.get(grant, :id)) ->
+        {:error, :invalid_pilot_grant_identity}
+      Map.get(grant, :task_id) != Map.get(task, :id) or
+          Map.get(grant, :dispatch_id) != execution.dispatch_id ->
+        {:error, :invalid_pilot_grant_binding}
+      not is_binary(Map.get(grant, :issued_at)) or Map.get(grant, :issued_at) == "" ->
+        {:error, :invalid_pilot_grant_timestamp}
+      not valid_scope_list?(read_scopes) or not valid_scope_list?(write_scopes) ->
+        {:error, :invalid_pilot_grant_scopes}
+      not is_binary(result_root) ->
+        {:error, :invalid_result_path}
+      result_root == workspace or String.starts_with?(result_root <> "/", workspace <> "/") ->
+        {:error, :result_path_inside_workspace}
+      writer? != (write_roots != []) ->
+        {:error, :writer_scope_mismatch}
+      Enum.any?(read_scopes ++ write_scopes, &git_metadata?/1) ->
+        {:error, :git_metadata_scope_denied}
+      Enum.any?(write_roots, fn root -> root == workspace or not workspace_relative?(workspace, root) end) ->
+        {:error, :write_scope_outside_workspace}
+      true -> {:ok, %{execution | result_root: result_root, write_roots: write_roots}}
+    end
+  end
+
+  defp validate_execution(_, _), do: {:error, :pilot_execution_grant_required}
+  defp git_metadata?(path), do: path == ".git" or String.starts_with?(path, ".git/")
+  defp valid_uuid?(value) when is_binary(value), do: Regex.match?(~r/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, value)
+  defp valid_uuid?(_), do: false
+  defp valid_sha?(value) when is_binary(value), do: Regex.match?(~r/^[0-9a-f]{40}$/, value)
+  defp valid_sha?(_), do: false
+  defp valid_scope_list?(scopes) when is_list(scopes) do
+    Enum.all?(scopes, fn scope -> is_binary(scope) and scope != "" and not String.contains?(scope, ["\\", "\0", ".."]) end)
+  end
+  defp valid_scope_list?(_), do: false
+  defp workspace_relative?(workspace, path) do
+    relative = Path.relative_to(path, workspace)
+    relative not in ["", ".", ".."] and not String.starts_with?(relative, "../")
+  end
 
   defp tool_call_name(params) when is_map(params) do
     case Map.get(params, "tool") || Map.get(params, :tool) || Map.get(params, "name") || Map.get(params, :name) do

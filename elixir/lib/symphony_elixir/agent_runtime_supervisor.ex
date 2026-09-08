@@ -1,7 +1,5 @@
 defmodule SymphonyElixir.AgentRuntimeSupervisor do
-  @moduledoc """
-  Supervises the scheduler authority together with its agent tasks.
-  """
+  @moduledoc """Supervises Runtime execution mechanics and task-scoped PM continuity."""
 
   use Supervisor
 
@@ -23,6 +21,7 @@ defmodule SymphonyElixir.AgentRuntimeSupervisor do
         {Task.Supervisor, name: task_supervisor_name},
         id: task_supervisor_name
       ),
+      Supervisor.child_spec(SymphonyElixir.PMContinuity, id: SymphonyElixir.PMContinuity),
       Supervisor.child_spec(
         {SymphonyElixir.Orchestrator, name: orchestrator_name, task_supervisor: task_supervisor_name},
         id: orchestrator_name
