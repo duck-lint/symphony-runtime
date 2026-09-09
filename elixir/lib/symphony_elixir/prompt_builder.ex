@@ -12,6 +12,7 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp handoff_instructions(%{handoff_inputs: []}), do: ""
+
   defp handoff_instructions(%{handoff_inputs: inputs}) do
     "\n\n## Pilot-selected bounded handoff inputs\n\n" <>
       Jason.encode!(inputs, pretty: true) <>
@@ -19,15 +20,23 @@ defmodule SymphonyElixir.PromptBuilder do
   end
 
   defp execution_map(dispatch) do
-    %{"task_id" => dispatch.task.id, "identifier" => dispatch.task.identifier,
-      "lifecycle_id" => dispatch.lifecycle_id, "working_round_id" => dispatch.working_round_id,
-      "planning_attempt_id" => dispatch.planning_attempt_id, "dispatch_id" => dispatch.dispatch_id,
-      "role" => dispatch.role, "expected_starting_head" => dispatch.expected_starting_head,
-      "capability_grant" => dispatch.grant, "result_path" => dispatch.result_path}
+    %{
+      "task_id" => dispatch.task.id,
+      "identifier" => dispatch.task.identifier,
+      "lifecycle_id" => dispatch.lifecycle_id,
+      "working_round_id" => dispatch.working_round_id,
+      "planning_attempt_id" => dispatch.planning_attempt_id,
+      "dispatch_id" => dispatch.dispatch_id,
+      "role" => dispatch.role,
+      "expected_starting_head" => dispatch.expected_starting_head,
+      "capability_grant" => dispatch.grant,
+      "result_path" => dispatch.result_path
+    }
   end
 
   defp protocol_instructions(dispatch) do
     role = dispatch.role
+
     """
 
     ## Pilot execution contract

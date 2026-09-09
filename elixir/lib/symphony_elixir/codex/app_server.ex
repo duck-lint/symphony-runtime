@@ -250,9 +250,9 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp session_policies(workspace) do
     Config.codex_runtime_settings(workspace)
   end
+
   defp dispatch_policies(policies, expanded_workspace, execution) do
-    dispatch_policies_for_role(policies, expanded_workspace, execution.role,
-      execution.result_root, execution.write_roots, execution.dispatch_id)
+    dispatch_policies_for_role(policies, expanded_workspace, execution.role, execution.result_root, execution.write_roots, execution.dispatch_id)
   end
 
   defp dispatch_policies_for_role(policies, workspace, role, result_writable_root, authorized_write_roots, dispatch_id) do
@@ -315,12 +315,7 @@ defmodule SymphonyElixir.Codex.AppServer do
                     "network" => %{"enabled" => false}
                   }
 
-                  {:ok,
-                   %{policies |
-                     thread_sandbox: nil,
-                     turn_sandbox_policy: nil,
-                     permissions_profile: profile_id,
-                     config_overrides: %{"permissions" => %{profile_id => permission_profile}}}}
+                  {:ok, %{policies | thread_sandbox: nil, turn_sandbox_policy: nil, permissions_profile: profile_id, config_overrides: %{"permissions" => %{profile_id => permission_profile}}}}
                 end
               end
             end
@@ -345,8 +340,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp start_thread(
          port,
          workspace,
-         %{approval_policy: approval_policy, thread_sandbox: thread_sandbox,
-           permissions_profile: permissions_profile, config_overrides: config_overrides},
+         %{approval_policy: approval_policy, thread_sandbox: thread_sandbox, permissions_profile: permissions_profile, config_overrides: config_overrides},
          dynamic_tool_binding,
          opts
        ) do
@@ -355,7 +349,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       "id" => @thread_start_id,
       "params" => %{
         "approvalPolicy" => approval_policy,
-        "cwd" => workspace,
+        "cwd" => workspace
       }
     }
 
@@ -374,6 +368,7 @@ defmodule SymphonyElixir.Codex.AppServer do
       end
 
     params = put_in(params, ["params", "dynamicTools"], [])
+
     params =
       case Keyword.get(opts, :developer_instructions) do
         value when is_binary(value) and value != "" -> put_in(params, ["params", "developerInstructions"], value)
@@ -1067,8 +1062,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp default_on_message(_message), do: :ok
 
   defp unsupported_tool(_tool, _arguments) do
-    %{"success" => false, "output" => "Runtime exposes no model-authorized tools.",
-      "contentItems" => [%{"type" => "inputText", "text" => "tool_not_authorized"}]}
+    %{"success" => false, "output" => "Runtime exposes no model-authorized tools.", "contentItems" => [%{"type" => "inputText", "text" => "tool_not_authorized"}]}
   end
 
   defp validate_execution(%PilotProjection{} = execution, workspace) when is_binary(workspace) do
@@ -1084,34 +1078,49 @@ defmodule SymphonyElixir.Codex.AppServer do
     cond do
       execution.role not in ["PROJECT-MANAGER", "PLANNER", "IMPLEMENTER", "REVIEWER", "ADVERSARY", "ARCHIVIST"] ->
         {:error, :invalid_role}
+
       not valid_uuid?(execution.dispatch_id) ->
         {:error, :invalid_dispatch_id}
+
       not valid_uuid?(Map.get(task, :id)) ->
         {:error, :invalid_task_id}
+
       not valid_sha?(execution.expected_starting_head) ->
         {:error, :invalid_expected_starting_head}
+
       not is_map(execution.grant) or Map.get(grant, :role) != execution.role ->
         {:error, :invalid_pilot_grant}
+
       not valid_uuid?(Map.get(grant, :id)) ->
         {:error, :invalid_pilot_grant_identity}
+
       Map.get(grant, :task_id) != Map.get(task, :id) or
           Map.get(grant, :dispatch_id) != execution.dispatch_id ->
         {:error, :invalid_pilot_grant_binding}
+
       not is_binary(Map.get(grant, :issued_at)) or Map.get(grant, :issued_at) == "" ->
         {:error, :invalid_pilot_grant_timestamp}
+
       not valid_scope_list?(read_scopes) or not valid_scope_list?(write_scopes) ->
         {:error, :invalid_pilot_grant_scopes}
+
       not is_binary(result_root) ->
         {:error, :invalid_result_path}
+
       result_root == workspace or String.starts_with?(result_root <> "/", workspace <> "/") ->
         {:error, :result_path_inside_workspace}
+
       writer? != (write_roots != []) ->
         {:error, :writer_scope_mismatch}
+
       Enum.any?(read_scopes ++ write_scopes, &git_metadata?/1) ->
         {:error, :git_metadata_scope_denied}
+
       Enum.any?(write_roots, fn root -> root == workspace or not workspace_relative?(workspace, root) end) ->
         {:error, :write_scope_outside_workspace}
-      true -> {:ok, %{execution | result_root: result_root, write_roots: write_roots}}
+
+      true ->
+        {:ok, %{execution | result_root: result_root, write_roots: write_roots}}
     end
   end
 
@@ -1121,10 +1130,13 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp valid_uuid?(_), do: false
   defp valid_sha?(value) when is_binary(value), do: Regex.match?(~r/^[0-9a-f]{40}$/, value)
   defp valid_sha?(_), do: false
+
   defp valid_scope_list?(scopes) when is_list(scopes) do
     Enum.all?(scopes, fn scope -> is_binary(scope) and scope != "" and not String.contains?(scope, ["\\", "\0", ".."]) end)
   end
+
   defp valid_scope_list?(_), do: false
+
   defp workspace_relative?(workspace, path) do
     relative = Path.relative_to(path, workspace)
     relative not in ["", ".", ".."] and not String.starts_with?(relative, "../")

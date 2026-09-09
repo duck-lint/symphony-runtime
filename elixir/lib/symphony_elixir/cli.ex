@@ -11,9 +11,16 @@ defmodule SymphonyElixir.CLI do
   @doc false
   def main(args, ensure_started) do
     case evaluate(args, ensure_started: ensure_started) do
-      :ok -> wait_for_shutdown()
-      {:version, version} -> IO.puts(version); System.halt(0)
-      {:error, message} -> IO.puts(:stderr, message); System.halt(1)
+      :ok ->
+        wait_for_shutdown()
+
+      {:version, version} ->
+        IO.puts(version)
+        System.halt(0)
+
+      {:error, message} ->
+        IO.puts(:stderr, message)
+        System.halt(1)
     end
   end
 
@@ -36,6 +43,7 @@ defmodule SymphonyElixir.CLI do
   defp run(path, opts) do
     if File.regular?(Path.expand(path)) do
       :ok = SymphonyElixir.Workflow.set_workflow_file_path(Path.expand(path))
+
       case Keyword.get(opts, :ensure_started, fn -> Application.ensure_all_started(:symphony_elixir) end).() do
         {:ok, _} -> :ok
         {:error, reason} -> {:error, "Failed to start Runtime: #{inspect(reason)}"}
@@ -50,23 +58,33 @@ defmodule SymphonyElixir.CLI do
       nil -> :ok
       value -> Application.put_env(:symphony_elixir, :log_file, LogFile.default_log_file(Path.expand(value)))
     end
+
     case Keyword.get(opts, :port) do
       nil -> :ok
       port when is_integer(port) and port >= 0 -> Application.put_env(:symphony_elixir, :server_port_override, port)
       _ -> {:error, usage_message()}
     end
+
     :ok
   end
 
   defp require_ack(opts) do
     if Keyword.get(opts, @acknowledgement_switch, false), do: :ok, else: {:error, "Runtime requires --#{@acknowledgement_switch}"}
   end
+
   defp usage_message, do: "Usage: symphony [--logs-root <path>] [--port <port>] [path-to-WORKFLOW.md]"
 
   defp wait_for_shutdown do
     case Process.whereis(SymphonyElixir.Supervisor) do
-      nil -> System.halt(1)
-      pid -> ref = Process.monitor(pid); receive do {:DOWN, ^ref, :process, ^pid, reason} -> System.halt(if reason == :normal, do: 0, else: 1) end
+      nil ->
+        System.halt(1)
+
+      pid ->
+        ref = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, reason} -> System.halt(if reason == :normal, do: 0, else: 1)
+        end
     end
   end
 end

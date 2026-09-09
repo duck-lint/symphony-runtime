@@ -19,9 +19,12 @@ defmodule SymphonyElixir.ExecutionBoundaryTest do
     {head, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: root)
     task = %{expected_starting_head: String.trim(head)}
     assert :ok = Workspace.verify_starting_state_for_test(root, task)
+
     assert {:error, :workspace_starting_head_mismatch} =
              Workspace.verify_starting_state_for_test(root, %{expected_starting_head: String.duplicate("a", 40)})
+
     File.write!(Path.join(root, "dirty"), "not clean\n")
+
     assert {:error, :workspace_dirty} =
              Workspace.verify_starting_state_for_test(root, task)
   end
@@ -45,12 +48,16 @@ defmodule SymphonyElixir.ExecutionBoundaryTest do
   test "non-writer grant cannot contain project write roots" do
     task_id = Ecto.UUID.generate()
     dispatch_id = Ecto.UUID.generate()
-    execution = %PilotProjection{role: "REVIEWER", dispatch_id: dispatch_id,
+
+    execution = %PilotProjection{
+      role: "REVIEWER",
+      dispatch_id: dispatch_id,
       result_path: "/tmp/pilot/outbox/result.json",
       expected_starting_head: String.duplicate("a", 40),
-      grant: %{id: Ecto.UUID.generate(), task_id: task_id, dispatch_id: dispatch_id,
-        issued_at: "2026-09-08T00:00:00Z", role: "REVIEWER",
-        read_scopes: ["project"], write_scopes: ["src"]}, task: %{id: task_id}}
+      grant: %{id: Ecto.UUID.generate(), task_id: task_id, dispatch_id: dispatch_id, issued_at: "2026-09-08T00:00:00Z", role: "REVIEWER", read_scopes: ["project"], write_scopes: ["src"]},
+      task: %{id: task_id}
+    }
+
     assert {:error, :writer_scope_mismatch} =
              AppServer.validate_execution_for_test(execution, "/tmp/workspace")
   end

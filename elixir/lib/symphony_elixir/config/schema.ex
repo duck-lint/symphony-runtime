@@ -17,6 +17,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:project_slug, :string)
       field(:reconcile_command, {:array, :string})
     end
+
     def changeset(schema, attrs) do
       schema
       |> cast(attrs, [:database_path, :project_slug, :reconcile_command], empty_values: [])
@@ -41,6 +42,7 @@ defmodule SymphonyElixir.Config.Schema do
     embedded_schema do
       field(:interval_ms, :integer, default: 1_000)
     end
+
     def changeset(schema, attrs), do: schema |> cast(attrs, [:interval_ms], empty_values: []) |> validate_number(:interval_ms, greater_than: 0)
   end
 
@@ -54,6 +56,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:materialize_command, {:array, :string})
       field(:repository_remote, :string)
     end
+
     def changeset(schema, attrs) do
       schema
       |> cast(attrs, [:root, :materialize_command, :repository_remote], empty_values: [])
@@ -75,6 +78,7 @@ defmodule SymphonyElixir.Config.Schema do
     embedded_schema do
       field(:max_concurrent_agents, :integer, default: 1)
     end
+
     def changeset(schema, attrs) do
       schema
       |> cast(attrs, [:max_concurrent_agents], empty_values: [])
@@ -96,6 +100,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:read_timeout_ms, :integer, default: 5_000)
       field(:stall_timeout_ms, :integer, default: 300_000)
     end
+
     def changeset(schema, attrs) do
       schema
       |> cast(attrs, [:command, :approval_policy, :thread_sandbox, :turn_sandbox_policy, :turn_timeout_ms, :read_timeout_ms, :stall_timeout_ms], empty_values: [])
@@ -116,8 +121,10 @@ defmodule SymphonyElixir.Config.Schema do
       field(:refresh_ms, :integer, default: 1_000)
       field(:render_interval_ms, :integer, default: 16)
     end
+
     def changeset(schema, attrs) do
-      schema |> cast(attrs, [:dashboard_enabled, :refresh_ms, :render_interval_ms], empty_values: [])
+      schema
+      |> cast(attrs, [:dashboard_enabled, :refresh_ms, :render_interval_ms], empty_values: [])
       |> validate_number(:refresh_ms, greater_than: 0)
       |> validate_number(:render_interval_ms, greater_than: 0)
     end
@@ -132,6 +139,7 @@ defmodule SymphonyElixir.Config.Schema do
       field(:port, :integer)
       field(:host, :string, default: "127.0.0.1")
     end
+
     def changeset(schema, attrs), do: schema |> cast(attrs, [:port, :host], empty_values: []) |> validate_number(:port, greater_than_or_equal_to: 0)
   end
 
@@ -179,6 +187,7 @@ defmodule SymphonyElixir.Config.Schema do
   defp format_errors(changeset) do
     changeset |> traverse_errors(&translate_error/1) |> Enum.map_join(", ", fn {key, value} -> "#{key} #{value}" end)
   end
+
   defp translate_error({message, options}) do
     Enum.reduce(options, message, fn {key, value}, acc -> String.replace(acc, "%{#{key}}", to_string(value)) end)
   end

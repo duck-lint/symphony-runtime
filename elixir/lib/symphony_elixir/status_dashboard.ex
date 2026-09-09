@@ -31,6 +31,7 @@ defmodule SymphonyElixir.StatusDashboard do
     Process.send_after(self(), :tick, state.refresh_ms)
     {:noreply, state}
   end
+
   def handle_info(:refresh, state), do: {:noreply, state}
 
   defp render_snapshot do
@@ -38,7 +39,9 @@ defmodule SymphonyElixir.StatusDashboard do
       %{running: running} = snapshot ->
         rows = Enum.map(running, fn entry -> "#{entry.expected_role} #{entry.dispatch_id} task=#{entry.task_id}" end)
         Enum.join(["SYMPHONY RUNTIME", "running=#{length(running)}"] ++ rows, "\n")
-      _ -> "SYMPHONY RUNTIME unavailable"
+
+      _ ->
+        "SYMPHONY RUNTIME unavailable"
     end
   end
 end

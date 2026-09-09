@@ -2,6 +2,7 @@ defmodule SymphonyElixirWeb.Router do
   @moduledoc "Runtime observability routes."
   use Phoenix.Router
   import Phoenix.LiveView.Router
+
   pipeline :browser do
     plug(:fetch_session)
     plug(:fetch_live_flash)
@@ -9,12 +10,14 @@ defmodule SymphonyElixirWeb.Router do
     plug(:protect_from_forgery)
     plug(:put_secure_browser_headers)
   end
+
   scope "/", SymphonyElixirWeb do
     pipe_through(:browser)
     get("/dashboard.css", StaticAssetController, :dashboard_css)
     get("/favicon.png", StaticAssetController, :favicon)
     live("/", DashboardLive, :index)
   end
+
   scope "/", SymphonyElixirWeb do
     get("/api/v1/state", ObservabilityApiController, :state)
     post("/api/v1/refresh", ObservabilityApiController, :refresh)

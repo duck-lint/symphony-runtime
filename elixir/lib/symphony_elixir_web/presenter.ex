@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.Presenter do
 
   def state_payload(orchestrator, timeout) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
     case Orchestrator.snapshot(orchestrator, timeout) do
       %{} = snapshot -> Map.merge(snapshot, %{generated_at: generated_at, lifecycle_source: "Pilot"})
       :timeout -> %{generated_at: generated_at, error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}

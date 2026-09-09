@@ -16,6 +16,7 @@ defmodule SymphonyElixir.PMContinuity do
       _ -> ""
     end
   end
+
   def prompt_suffix(_task_id, _role), do: ""
 
   @spec record(String.t(), term()) :: :ok
@@ -29,10 +30,12 @@ defmodule SymphonyElixir.PMContinuity do
 
   @impl true
   def handle_call({:prompt, task_id}, _from, state) do
-    suffix = case Map.get(state, task_id) do
-      nil -> ""
-      entries -> "\n\n## Prior PM/Dispatcher continuity for this durable task\n" <> Enum.join(entries, "\n")
-    end
+    suffix =
+      case Map.get(state, task_id) do
+        nil -> ""
+        entries -> "\n\n## Prior PM/Dispatcher continuity for this durable task\n" <> Enum.join(entries, "\n")
+      end
+
     {:reply, suffix, state}
   end
 

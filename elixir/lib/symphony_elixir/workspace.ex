@@ -28,6 +28,7 @@ defmodule SymphonyElixir.Workspace do
          {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded),
          {:ok, canonical_root} <- PathSafety.canonicalize(root) do
       expected = path_for_task(identifier) |> Path.expand()
+
       cond do
         canonical_workspace == canonical_root -> {:error, :workspace_root_not_task_workspace}
         not String.starts_with?(canonical_workspace <> "/", canonical_root <> "/") -> {:error, :workspace_outside_runtime_root}
@@ -42,6 +43,7 @@ defmodule SymphonyElixir.Workspace do
   def ensure_task_workspace(%{identifier: identifier} = task) when is_binary(identifier) do
     with :ok <- validate_identifier(identifier) do
       workspace = path_for_task(identifier)
+
       with :ok <- materialize_if_absent(workspace),
            {:ok, canonical} <- validate(workspace, identifier),
            :ok <- verify_repository(canonical),
@@ -50,6 +52,7 @@ defmodule SymphonyElixir.Workspace do
       end
     end
   end
+
   def ensure_task_workspace(_), do: {:error, :task_identity_missing}
 
   @doc false
@@ -60,19 +63,23 @@ defmodule SymphonyElixir.Workspace do
       :ok
     else
       File.mkdir_p!(workspace)
+
       case Config.settings!().workspace.materialize_command do
         [executable | arguments] ->
           case System.cmd(executable, arguments, cd: workspace, stderr_to_stdout: true) do
             {_output, 0} -> :ok
             {_output, status} -> {:error, {:workspace_materialization_failed, status}}
           end
-        _ -> {:error, :workspace_materialization_not_authorized}
+
+        _ ->
+          {:error, :workspace_materialization_not_authorized}
       end
     end
   end
 
   defp verify_repository(workspace) do
     expected = Config.settings!().workspace.repository_remote
+
     case System.cmd("git", ["remote", "get-url", "origin"], cd: workspace, stderr_to_stdout: true) do
       {remote, 0} -> if String.trim(remote) == expected, do: :ok, else: {:error, :workspace_repository_identity_mismatch}
       {_output, _status} -> {:error, :workspace_repository_identity_mismatch}
@@ -91,7 +98,9 @@ defmodule SymphonyElixir.Workspace do
             {_output, _status} -> {:error, :workspace_starting_state_unverifiable}
           end
         end
-      {_output, _status} -> {:error, :workspace_starting_state_unverifiable}
+
+      {_output, _status} ->
+        {:error, :workspace_starting_state_unverifiable}
     end
   end
 

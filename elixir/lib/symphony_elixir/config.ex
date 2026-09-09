@@ -10,6 +10,7 @@ defmodule SymphonyElixir.Config do
   """
 
   def settings, do: WorkflowStore.settings()
+
   def settings! do
     case settings() do
       {:ok, value} -> value
@@ -38,10 +39,16 @@ defmodule SymphonyElixir.Config do
 
   def codex_runtime_settings(_workspace \\ nil, _opts \\ []) do
     settings = settings!()
-    {:ok, %{approval_policy: settings.codex.approval_policy, thread_sandbox: settings.codex.thread_sandbox,
-      turn_sandbox_policy: settings.codex.turn_sandbox_policy, permissions_profile: nil, config_overrides: nil}}
+
+    {:ok,
+     %{
+       approval_policy: settings.codex.approval_policy,
+       thread_sandbox: settings.codex.thread_sandbox,
+       turn_sandbox_policy: settings.codex.turn_sandbox_policy,
+       permissions_profile: nil,
+       config_overrides: nil
+     }}
   end
 
   def validate!, do: WorkflowStore.force_reload()
-
 end
