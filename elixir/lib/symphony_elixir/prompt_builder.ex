@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.PromptBuilder do
-  @moduledoc """Builds one role prompt from the Pilot dispatch and workflow text."""
+  @moduledoc "Builds one role prompt from the Pilot dispatch and workflow text."
 
   alias SymphonyElixir.{Config, PilotProjection}
   @render_opts [strict_variables: false, strict_filters: true]

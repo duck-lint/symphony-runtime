@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.Workspace do
-  @moduledoc """Task workspace boundary used by Runtime execution."""
+  @moduledoc "Task workspace boundary used by Runtime execution."
 
   alias SymphonyElixir.{Config, PathSafety}
   @task_identifier ~r/^T-[0-9]{6}$/

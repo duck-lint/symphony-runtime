@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.PMContinuity do
-  @moduledoc """Task-keyed PM continuity, separate from fresh specialist executions."""
+  @moduledoc "Task-keyed PM continuity, separate from fresh specialist executions."
 
   use GenServer
 

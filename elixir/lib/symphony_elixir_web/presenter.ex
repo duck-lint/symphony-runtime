@@ -1,5 +1,5 @@
 defmodule SymphonyElixirWeb.Presenter do
-  @moduledoc """Projects only Runtime-observed facts; Pilot lifecycle meaning stays upstream."""
+  @moduledoc "Projects only Runtime-observed facts; Pilot lifecycle meaning stays upstream."
 
   alias SymphonyElixir.Orchestrator
 

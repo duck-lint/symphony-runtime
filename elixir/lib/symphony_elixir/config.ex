@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.Config do
-  @moduledoc """Runtime mechanics configuration; Pilot state remains authoritative."""
+  @moduledoc "Runtime mechanics configuration; Pilot state remains authoritative."
 
   alias SymphonyElixir.{Workflow, WorkflowStore}
 

@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.CLI do
-  @moduledoc """Escript entry point for a Runtime WORKFLOW projection."""
+  @moduledoc "Escript entry point for a Runtime WORKFLOW projection."
 
   alias SymphonyElixir.LogFile
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails

@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.AgentRunner do
-  @moduledoc """Runs exactly one Pilot-authorized execution and emits host evidence."""
+  @moduledoc "Runs exactly one Pilot-authorized execution and emits host evidence."
 
   require Logger
   alias SymphonyElixir.{Codex.AppServer, Config, PilotProjection, PMContinuity, PromptBuilder, Workspace}

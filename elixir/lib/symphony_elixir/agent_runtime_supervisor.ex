@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.AgentRuntimeSupervisor do
-  @moduledoc """Supervises Runtime execution mechanics and task-scoped PM continuity."""
+  @moduledoc "Supervises Runtime execution mechanics and task-scoped PM continuity."
 
   use Supervisor
 

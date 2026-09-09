@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.Config.Schema do
-  @moduledoc """Runtime configuration that does not duplicate Pilot semantics."""
+  @moduledoc "Runtime configuration that does not duplicate Pilot semantics."
 
   use Ecto.Schema
   import Ecto.Changeset

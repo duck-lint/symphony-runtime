@@ -1,5 +1,5 @@
 defmodule SymphonyElixirWeb.ObservabilityApiController do
-  @moduledoc """Runtime observability API; it is not a lifecycle authority."""
+  @moduledoc "Runtime observability API; it is not a lifecycle authority."
   use Phoenix.Controller, formats: [:json]
   alias Plug.Conn
   alias SymphonyElixirWeb.{Endpoint, Presenter}

@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.StatusDashboard do
-  @moduledoc """Small Runtime-only projection of observed execution mechanics."""
+  @moduledoc "Small Runtime-only projection of observed execution mechanics."
 
   use GenServer
   alias SymphonyElixir.Config

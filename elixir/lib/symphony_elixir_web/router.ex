@@ -1,5 +1,5 @@
 defmodule SymphonyElixirWeb.Router do
-  @moduledoc """Runtime observability routes."""
+  @moduledoc "Runtime observability routes."
   use Phoenix.Router
   import Phoenix.LiveView.Router
   pipeline :browser do

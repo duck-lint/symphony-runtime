@@ -76,8 +76,8 @@ defmodule SymphonyElixir.Orchestrator do
 
   @spec snapshot(GenServer.server(), timeout()) :: map() | :unavailable
   def snapshot(server, timeout) do
-    case GenServer.call(server, :snapshot, timeout) do
-      value -> value
+    try do
+      GenServer.call(server, :snapshot, timeout)
     catch
       :exit, _ -> :unavailable
     end

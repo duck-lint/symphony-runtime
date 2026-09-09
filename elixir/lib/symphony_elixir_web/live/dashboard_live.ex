@@ -1,5 +1,5 @@
 defmodule SymphonyElixirWeb.DashboardLive do
-  @moduledoc """Live projection of Runtime execution observation."""
+  @moduledoc "Live projection of Runtime execution observation."
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
   alias SymphonyElixirWeb.{Endpoint, Presenter}
 
