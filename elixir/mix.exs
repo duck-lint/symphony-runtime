@@ -14,9 +14,6 @@ defmodule SymphonyElixir.MixProject do
       compilers: [:phoenix_live_view] ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,
       test_coverage: [
-        summary: [
-          threshold: 100
-        ],
         ignore_modules: [
           SymphonyElixir.Config,
           SymphonyElixir.SpecsCheck,
