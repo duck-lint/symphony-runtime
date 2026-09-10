@@ -8,7 +8,7 @@ defmodule SymphonyElixir.PromptBuilder do
   def build(%PilotProjection{} = dispatch) do
     template = Config.workflow_prompt() |> Solid.parse!()
     rendered = Solid.render!(template, %{"task" => stringify(dispatch.task), "execution" => execution_map(dispatch)}, @render_opts)
-    rendered <> handoff_instructions(dispatch) <> protocol_instructions(dispatch)
+    IO.iodata_to_binary(rendered) <> handoff_instructions(dispatch) <> protocol_instructions(dispatch)
   end
 
   defp handoff_instructions(%{handoff_inputs: []}), do: ""

@@ -4,8 +4,7 @@ defmodule SymphonyElixir.PMContinuityTest do
   alias SymphonyElixir.PMContinuity
 
   test "continuity is task-scoped and never shared with specialists" do
-    {:ok, pid} = PMContinuity.start_link()
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    assert is_pid(Process.whereis(PMContinuity))
 
     PMContinuity.record("task-a", %{summary: "accepted PM observation"})
 

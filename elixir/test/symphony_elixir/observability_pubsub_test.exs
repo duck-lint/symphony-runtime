@@ -1,5 +1,5 @@
 defmodule SymphonyElixir.ObservabilityPubSubTest do
-  use SymphonyElixir.TestSupport
+  use ExUnit.Case, async: false
 
   alias SymphonyElixirWeb.ObservabilityPubSub
 
