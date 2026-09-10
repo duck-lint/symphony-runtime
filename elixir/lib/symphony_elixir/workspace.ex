@@ -56,6 +56,7 @@ defmodule SymphonyElixir.Workspace do
   def ensure_task_workspace(_), do: {:error, :task_identity_missing}
 
   @doc false
+  @spec verify_starting_state_for_test(Path.t(), map()) :: :ok | {:error, term()}
   def verify_starting_state_for_test(workspace, task), do: verify_starting_state(workspace, task)
 
   defp materialize_if_absent(workspace) do

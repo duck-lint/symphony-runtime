@@ -3,6 +3,7 @@ defmodule SymphonyElixirWeb.Presenter do
 
   alias SymphonyElixir.Orchestrator
 
+  @spec state_payload(GenServer.server(), timeout()) :: map()
   def state_payload(orchestrator, timeout) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -13,6 +14,7 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
+  @spec refresh_payload(GenServer.server()) :: {:ok, term()} | {:error, :unavailable}
   def refresh_payload(orchestrator) do
     case Orchestrator.request_refresh(orchestrator) do
       {:ok, payload} -> {:ok, payload}

@@ -78,6 +78,7 @@ defmodule SymphonyElixir.PilotProjection do
   end
 
   @doc false
+  @spec visible_authorized_dispatch_for_test(t() | nil) :: {:ok, t() | nil}
   def visible_authorized_dispatch_for_test(dispatch), do: visible_authorized_dispatch(dispatch)
 
   defp visible_authorized_dispatch(nil), do: {:ok, nil}

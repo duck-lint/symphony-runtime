@@ -4,16 +4,20 @@ defmodule SymphonyElixir.StatusDashboard do
   use GenServer
   alias SymphonyElixir.Config
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
 
+  @spec notify_update(GenServer.server()) :: :ok
   def notify_update(server \\ __MODULE__) do
     if pid = GenServer.whereis(server), do: send(pid, :refresh)
     :ok
   end
 
+  @spec render_offline_status() :: :ok
   def render_offline_status, do: IO.puts("SYMPHONY RUNTIME offline")
 
   @doc false
+  @spec humanize_codex_message(term()) :: String.t() | nil
   def humanize_codex_message(nil), do: nil
   def humanize_codex_message(value) when is_binary(value), do: String.slice(value, 0, 500)
   def humanize_codex_message(value), do: inspect(value, limit: 10, printable_limit: 500)

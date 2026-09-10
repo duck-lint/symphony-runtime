@@ -6,9 +6,11 @@ defmodule SymphonyElixir.CLI do
   @switches [{@acknowledgement_switch, :boolean}, logs_root: :string, port: :integer, version: :boolean]
   @version Mix.Project.config()[:version]
 
+  @spec main([String.t()]) :: no_return()
   def main(args), do: main(args, fn -> Application.ensure_all_started(:symphony_elixir) end)
 
   @doc false
+  @spec main([String.t()], (-> term())) :: no_return()
   def main(args, ensure_started) do
     case evaluate(args, ensure_started: ensure_started) do
       :ok ->
@@ -25,6 +27,7 @@ defmodule SymphonyElixir.CLI do
   end
 
   @doc false
+  @spec evaluate([String.t()], keyword()) :: :ok | {:version, String.t()} | {:error, String.t()}
   def evaluate(args, opts \\ []) do
     case OptionParser.parse(args, strict: @switches) do
       {parsed, [], []} -> evaluate_options(parsed, opts)
