@@ -188,7 +188,15 @@ defmodule SymphonyElixir.PilotProjection do
          dispatch_id: dispatch_id,
          role: role,
          expected_starting_head: starting_head,
-         grant: %{id: grant_id, role: role, read_scopes: read_scopes, write_scopes: write_scopes, issued_at: issued_at},
+         grant: %{
+           id: grant_id,
+           task_id: task_id,
+           dispatch_id: dispatch_id,
+           role: role,
+           read_scopes: read_scopes,
+           write_scopes: write_scopes,
+           issued_at: issued_at
+         },
          namespace: namespace,
          result_path: Path.join(namespace, "outbox/result.json"),
          execution_path: Path.join(namespace, "host/execution.json"),
