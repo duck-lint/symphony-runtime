@@ -210,7 +210,9 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp update_entry(_), do: %{}
+
   @doc false
+  @spec dispatch_schedulable_for_test?(%State{}, term()) :: boolean()
   def dispatch_schedulable_for_test?(%State{} = state, dispatch_id) do
     dispatch_schedulable?(state, dispatch_id)
   end
