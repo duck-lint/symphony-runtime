@@ -62,11 +62,31 @@ defmodule SymphonyElixir.Orchestrator do
 
   def handle_info({ref, result}, state) when is_reference(ref) do
     case find_by_ref(state.running, ref) do
-      {dispatch_id, entry} ->
+      {dispatch_id, _entry} ->
         Process.demonitor(ref, [:flush])
-        state = %{state | running: Map.delete(state.running, dispatch_id), completed: MapSet.put(state.completed, dispatch_id)}
-        Logger.info("Runtime execution finished dispatch_id=#{dispatch_id} result=#{inspect(result, limit: 10)}")
-        {:noreply, state}
+        state = %{state | running: Map.delete(state.running, dispatch_id)}
+
+        case result do
+          :ok ->
+            Logger.info("Runtime execution finished dispatch_id=#{dispatch_id}")
+            {:noreply,
+             %{state | completed: MapSet.put(state.completed, dispatch_id), last_error: nil}}
+
+          {:error, reason} ->
+            Logger.error(
+              "Runtime execution failed dispatch_id=#{dispatch_id} reason=#{inspect(reason, limit: 10)}; Pilot retains authorization"
+            )
+
+            {:noreply, %{state | last_error: {:dispatch_execution_failed, dispatch_id, reason}}}
+
+          other ->
+            Logger.error(
+              "Runtime execution returned an invalid result dispatch_id=#{dispatch_id} result=#{inspect(other, limit: 10)}; Pilot retains authorization"
+            )
+
+            {:noreply,
+             %{state | last_error: {:dispatch_execution_failed, dispatch_id, {:unexpected_result, other}}}}
+        end
 
       nil ->
         {:noreply, state}
@@ -122,7 +142,11 @@ defmodule SymphonyElixir.Orchestrator do
         state
 
       {:ok, %PilotProjection{dispatch_id: dispatch_id} = dispatch} ->
-        if MapSet.member?(state.completed, dispatch_id) or Map.has_key?(state.running, dispatch_id) do
+        # Pilot authorization remains the scheduling authority. Runtime's
+        # completed set is observational only and must never hide a dispatch
+        # that Pilot still presents as AUTHORIZED after a failed reconciliation
+        # or a prior Runtime process.
+        if not dispatch_schedulable?(state, dispatch_id) do
           state
         else
           recipient = self()
@@ -186,6 +210,15 @@ defmodule SymphonyElixir.Orchestrator do
   end
 
   defp update_entry(_), do: %{}
-  defp find_by_ref(running, ref), do: Enum.find_value(running, fn {dispatch_id, entry} -> if entry.ref == ref, do: {dispatch_id, entry} end)
+  @doc false
+  def dispatch_schedulable_for_test?(%State{} = state, dispatch_id) do
+    dispatch_schedulable?(state, dispatch_id)
+  end
+
+  defp dispatch_schedulable?(%State{} = state, dispatch_id), do: not Map.has_key?(state.running, dispatch_id)
+
+  defp find_by_ref(running, ref),
+    do: Enum.find_value(running, fn {dispatch_id, entry} -> if entry.ref == ref, do: {dispatch_id, entry} end)
+
   defp schedule_poll(state, delay), do: %{state | tick_ref: Process.send_after(self(), :poll, delay)}
 end
